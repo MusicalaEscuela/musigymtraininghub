@@ -170,6 +170,10 @@ input:focus, select:focus, textarea:focus { border-color: rgba(124,58,237,.52); 
   border-radius: var(--radius-lg);
   padding: .9rem;
 }
+.editable-item { display: grid; gap: .55rem; }
+.editable-item input, .editable-item textarea, .editable-item select { padding: .65rem .75rem; }
+.editable-item textarea { min-height: 74px; }
+.edit-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
 .routine-block strong, .route-item strong, .list-item strong, .timeline-item strong, .resource-card strong { display: block; }
 .routine-block span, .route-item span, .timeline-item small, .resource-card small { color: var(--primary); font-weight: 800; }
 .routine-block p, .route-item p, .list-item p, .timeline-item p, .resource-card p { color: var(--muted); margin: .35rem 0 0; }
