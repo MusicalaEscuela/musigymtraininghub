@@ -724,7 +724,7 @@ export function detectCoachIntent(text = "", explicitIntent = "") {
   if (explicitIntent) return explicitIntent;
   const q = normalizeText(text);
   if (!q) return "practice";
-  if (/(que practico|practicar hoy|que hago|rutina|hoy deberia)/.test(q)) return "practice";
+  if (/(que practic|practicar|practicamos|practico|que hago|que hacemos|que tocamos|que vemos hoy|rutina|hoy deberia|empezamos|arrancamos|empieza|que toca hoy|plan de hoy|plan para hoy)/.test(q)) return "practice";
   if (/(objetivo|objetivos|meta|metas|vamos por)/.test(q)) return "objectives";
   if (/(ruta|sigue|siguiente|avance|nivel|voy bien)/.test(q)) return "route";
   if (/(no entiendo|explica|que es|como funciona|duda|por que|porque)/.test(q)) return "explain";
