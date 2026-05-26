@@ -35,6 +35,10 @@ import {
   pickPhrase,
   pickUnblock,
   detectChallengeHint,
+  detectSmalltalk,
+  detectTopic,
+  isExerciseRequest,
+  SMALLTALK_RESPONSES,
   CREA,
 } from "./coach-knowledge.js";
 
@@ -752,10 +756,34 @@ function buildFiveStep({ plan, text, intent, instrumentInfo, challenge, seed }) 
 
 export function buildCoachResponse({ student, objectives = [], routine = null, progress = [], songs = [], diagnostics = [], evaluations = [], sessions = [], text = "", intent = "" }) {
   const plan = buildCoachPlan({ student, objectives, routine, progress, songs, diagnostics, evaluations, sessions });
-  const detected = detectCoachIntent(text, intent);
   const instrumentInfo = getInstrumentKnowledge(plan.instrument);
   const level = levelInfo(plan.level);
   const challenge = detectChallengeHint(text);
+
+  // 1) Small-talk: si es un saludo / "quién eres" / "gracias" / "chao",
+  //    respondemos a eso y NO al template pedagógico.
+  if (!intent) {
+    const smalltalk = detectSmalltalk(text);
+    if (smalltalk && SMALLTALK_RESPONSES[smalltalk]) {
+      return { intent: smalltalk, plan, ...SMALLTALK_RESPONSES[smalltalk] };
+    }
+  }
+
+  // 2) Tema musical concreto: si el estudiante pregunta por velocidad,
+  //    acordes, escalas, ritmo, etc., respondemos CON EL TEMA, no genérico.
+  if (!intent) {
+    const topic = detectTopic(text);
+    if (topic) {
+      const wantsExercises = isExerciseRequest(text) || /ejercici/.test(String(text).toLowerCase());
+      const exerciseList = topic.exercises.map((e, i) => `${i + 1}. ${e}`).join("\n");
+      const body = wantsExercises
+        ? `${topic.short}\n\n**Ejercicios:**\n${exerciseList}\n\n💡 ${topic.rule}\n\n¿Quieres que esto se convierta en tu foco de hoy o lo guardamos como duda para el profe?`
+        : `${topic.short}\n\n${topic.explanation}\n\n**Te dejo ejercicios concretos:**\n${exerciseList}\n\n💡 Regla clave: ${topic.rule}`;
+      return { intent: `topic:${topic.key}`, plan, title: topic.title, body };
+    }
+  }
+
+  const detected = detectCoachIntent(text, intent);
   const seed = coachSeed(student?.id, detected, text, sessions.length);
 
   const activeList = plan.activeObjectives.length
@@ -778,12 +806,22 @@ export function buildCoachResponse({ student, objectives = [], routine = null, p
         ? `Tu siguiente paso recomendado es: ${plan.routeStep.title}.\n\nComponente: ${plan.routeStep.component}.\nDescripción: ${plan.routeStep.description}\n\nHoy trabaja esto con un ejercicio corto y registra qué tan claro quedó del 1 al 5.`
         : `No encontré un punto de ruta pendiente. En tu nivel (${level.name}) el foco suele ser: ${level.focus}`,
     },
-    explain: {
-      title: "Te lo explico fácil",
-      body: buildFiveStep({ plan, text, intent: detected, instrumentInfo, challenge, seed }) +
-        `\n\nClave de ${plan.instrument}: ${instrumentInfo.explain}` +
-        (text ? `\n\nSobre tu duda: "${safeText(text)}" — primero identifica UNA sola parte que no entiendes, pruébala lento, compárala con el ejemplo del profe y escribe una pregunta concreta para guardarla.` : ""),
-    },
+    explain: (() => {
+      const topic = detectTopic(text);
+      if (topic) {
+        const exerciseList = topic.exercises.map((e, i) => `${i + 1}. ${e}`).join("\n");
+        return {
+          title: topic.title,
+          body: `${topic.short}\n\n${topic.explanation}\n\n**Pruébalo así:**\n${exerciseList}\n\n💡 ${topic.rule}`,
+        };
+      }
+      return {
+        title: "Te lo explico",
+        body: text
+          ? `Cuéntame un poco más para explicarte bien: "${safeText(text)}" puede referirse a varias cosas.\n\n¿Es sobre:\n• Un concepto técnico (acordes, escalas, ritmo, velocidad)?\n• Un ejercicio que no entiendes?\n• Algo de tu instrumento (${plan.instrument})?\n\nSi me dices la palabra clave, te doy explicación y ejercicios concretos.`
+          : `Dime qué concepto quieres entender y te lo explico con ejercicios concretos. Puedes preguntarme por: velocidad, acordes, escalas, ritmo, lectura, afinación, postura, respiración, memoria, oído, improvisación, nervios.`,
+      };
+    })(),
     fear: {
       title: "Con nervios también se practica",
       body: `${pickPhrase("validate", seed)}\n\nSentir miedo, pena o nervios significa que te importa. Hoy no busques demostrar nada: busca una repetición tranquila, una mejora pequeña y un cierre honesto.\n\nPráctica suave sugerida:\n• 3 min respirar y preparar el cuerpo.\n• 7 min repetir el fragmento más fácil de ${plan.focusTitle.toLowerCase()}.\n• 5 min tocar/hacer solo lo que ya conoces.\n• 2 min escribir una duda para tu profe.\n\nLa valentía artística casi nunca se siente heroica. A veces solo es volver a intentarlo sin tratarte horrible.`,
@@ -808,8 +846,10 @@ export function buildCoachResponse({ student, objectives = [], routine = null, p
       body: `En Musicala usamos la metodología **CREA**:\n\n• **C** — ${CREA.C}\n• **R** — ${CREA.R}\n• **E** — ${CREA.E}\n• **A** — ${CREA.A}\n\nEn tu caso (${plan.instrument}, nivel ${level.name.toLowerCase()}), el foco actual es: ${level.focus}\n\nHito de tu nivel: ${level.hito}`,
     },
     general: {
-      title: "Estoy contigo en esta práctica",
-      body: `${pickPhrase("validate", seed)}\n\nPor lo que me dices, lo más útil es volver al foco: ${plan.focusTitle}.\n\nPuedes preguntarme: "¿qué practico hoy?", "explícame esto", "qué sigue en mi ruta", "motívame", "hazlo más fácil" o "ponme un reto". Respondo con base en tus objetivos, ruta, canciones, diagnóstico y últimas sesiones.\n\n${pickPhrase("closingQuestion", seed)}`,
+      title: "Cuéntame un poco más",
+      body: text
+        ? `No estoy seguro de haber entendido del todo "${safeText(text)}". ¿Puedes decirme un poco más?\n\nPor ejemplo:\n• ¿Es algo técnico (acordes, ritmo, velocidad, lectura)?\n• ¿Estás bloqueado/a o frustrado/a con algo?\n• ¿Quieres una rutina de práctica para hoy?\n• ¿O quieres explicación de un concepto?\n\nTambién puedes elegir uno de los botones de arriba: "¿qué practico hoy?", "según mis objetivos", "explícame esto", "motívame" o "hazlo más fácil".`
+        : `Cuéntame qué necesitas hoy. Puedo armarte una rutina, explicarte algo, darte ejercicios concretos (velocidad, acordes, ritmo, afinación...) o ayudarte si algo no te sale.`,
     },
   };
 

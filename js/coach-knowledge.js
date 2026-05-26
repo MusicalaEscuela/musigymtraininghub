@@ -204,8 +204,9 @@ const DEFAULT_TIPS = {
   keywords: [],
 };
 
+const strip = (s) => String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+
 export function getInstrumentKnowledge(instrument = "") {
-  const strip = (s) => String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
   const norm = strip(instrument);
   for (const key of Object.keys(INSTRUMENT_KNOWLEDGE)) {
     const data = INSTRUMENT_KNOWLEDGE[key];
@@ -213,7 +214,300 @@ export function getInstrumentKnowledge(instrument = "") {
       return { key, ...data };
     }
   }
+  // Fallback: "Guitarra" sola → acústica; "guitarra eléctrica" ya matchea arriba.
+  if (norm.includes("guitarra")) return { key: "guitarraAcustica", ...INSTRUMENT_KNOWLEDGE.guitarraAcustica };
   return { key: "general", ...DEFAULT_TIPS };
+}
+
+// ============================================================
+// SMALL-TALK: saludos, identidad, despedidas, agradecimientos.
+// ============================================================
+
+export function detectSmalltalk(text = "") {
+  const t = strip(text).trim();
+  if (!t) return "";
+  if (/^(hola|holi|holis|buen[oa]s|saludos|que tal|ey|hey|hi+|hello)\b/.test(t)) return "greeting";
+  if (/(como te llamas|quien eres|que eres|tu nombre|cual es tu nombre|de donde vienes|que haces aqui)/.test(t)) return "identity";
+  if (/^(gracias|grax|thanks|thx|muchas gracias|mil gracias|te agradezco)\b/.test(t)) return "thanks";
+  if (/^(adios|chao|chau|nos vemos|hasta luego|hasta pronto|me voy|bye)\b/.test(t)) return "bye";
+  if (/(como estas|que tal estas|todo bien)/.test(t)) return "howareyou";
+  return "";
+}
+
+export const SMALLTALK_RESPONSES = {
+  greeting: {
+    title: "¡Hola!",
+    body: "Hola 👋 Soy MusiCoach. ¿En qué te ayudo hoy?\n\nPuedo:\n• Armarte una rutina de práctica.\n• Explicarte un concepto musical.\n• Darte ejercicios para algo específico (velocidad, acordes, ritmo, afinación...).\n• Ayudarte si algo no te sale o estás bloqueado/a.\n\nTambién puedes contarme qué te está costando y vemos juntos.",
+  },
+  identity: {
+    title: "Te cuento quién soy",
+    body: "Soy **MusiCoach**, el asistente pedagógico de práctica de **Musicala**. Mi trabajo es acompañarte entre clase y clase: organizar tu práctica, explicarte cosas, proponerte ejercicios y ayudarte cuando algo se traba.\n\nUso lo que sabemos de ti (instrumento, nivel, ruta, objetivos, sesiones y autoevaluaciones) para darte respuestas que tengan sentido en TU proceso, no recetas genéricas.",
+  },
+  thanks: {
+    title: "Con gusto",
+    body: "Con gusto 🎵 Cuando quieras seguir, aquí estoy. Recuerda: un minuto de práctica con intención vale más que una hora distraída.",
+  },
+  bye: {
+    title: "Nos vemos",
+    body: "Nos vemos. Antes de cerrar, hazte una pregunta corta: ¿qué UNA cosa quieres haber mejorado para la próxima clase? Escríbela y vuelve a ella mañana.",
+  },
+  howareyou: {
+    title: "Aquí estamos",
+    body: "Aquí estoy, listo para acompañarte. ¿Cómo llegas tú? ¿Con energía, cansado/a, con dudas, con ganas de retarte? Cuéntame y ajustamos la práctica de hoy a eso.",
+  },
+};
+
+// ============================================================
+// TOPICS: contenido pedagógico real por concepto musical.
+// Aquí MusiCoach se vuelve útil de verdad cuando preguntan
+// "explícame X" o "cómo mejoro Y" o "ejercicios para Z".
+// ============================================================
+
+export const TOPICS = {
+  velocidad: {
+    keywords: ["velocidad", "rapidez", "rapido", "tempo", "speed", "agilidad"],
+    title: "Cómo mejorar velocidad",
+    short: "La velocidad NO se entrena tocando rápido. Se entrena tocando LENTO y limpio, y subiendo BPM solo cuando ya sale sin error.",
+    explanation: "Si tocas rápido lo que aún no dominas, repites el error a más velocidad y el cerebro lo memoriza mal. La velocidad limpia es consecuencia de la precisión sostenida, no del esfuerzo.",
+    exercises: [
+      "Metrónomo a 60 BPM. Toca el pasaje LIMPIO 5 veces seguidas. Si fallas, NO subes BPM.",
+      "Cuando logres las 5 limpias, sube 4 BPM y repite.",
+      "Trabaja por células de 2-4 notas, no la frase entera.",
+      "Alterna: 1 min muy lento + 30 seg al tempo objetivo + 1 min lento otra vez.",
+      "Grábate al tempo objetivo y escucha si suena LIMPIO o solo rápido.",
+    ],
+    rule: "Si suena sucio al tempo, baja BPM. Punto.",
+  },
+  patrones: {
+    keywords: ["patron", "patrones", "pattern", "secuencia"],
+    title: "Cómo aprender patrones",
+    short: "Un patrón se domina entendiendo su lógica primero, no memorizándolo de oído.",
+    explanation: "Un patrón es una secuencia que se repite. Para internalizarlo: identifica el orden, cántalo o dilo en voz alta, hazlo MUY lento separando partes, y luego únelas. Solo cuando tu cuerpo lo conoce, agregas velocidad y variaciones.",
+    exercises: [
+      "Escribe el patrón en una hoja (notas, números o golpes).",
+      "Cántalo o dilo en voz alta sin tocar.",
+      "Tócalo en partes (primera mitad sola, segunda mitad sola).",
+      "Únelo MUY lento, sin metrónomo, sintiendo cada paso.",
+      "Cuando salga 3 veces seguidas limpio, métele metrónomo a 60 BPM.",
+      "Aplícalo en una canción que conozcas para que no se quede en ejercicio aislado.",
+    ],
+    rule: "Si no lo puedes cantar, no lo puedes tocar bien.",
+  },
+  acordes: {
+    keywords: ["acorde", "acordes", "chord"],
+    title: "Cómo trabajar acordes",
+    short: "Un acorde no es solo poner los dedos: es que SUENEN las cuerdas correctas con claridad.",
+    explanation: "Un acorde bien tocado se reconoce porque cada nota suena limpia, ninguna queda apagada y los dedos no presionan más de lo necesario. La forma se aprende; la limpieza se entrena.",
+    exercises: [
+      "Pisa el acorde y rasguea cuerda por cuerda. Si una suena apagada, ajusta ese dedo.",
+      "Mantén el acorde 10 segundos sin tocar y revisa que no haya tensión en la mano.",
+      "Quita los dedos y vuelve a ponerlos, buscando aterrizar todos a la vez.",
+      "Practica el acorde aislado 10 veces antes de meterlo a una canción.",
+    ],
+    rule: "Si suena sucio, el problema casi nunca es 'falta de fuerza': suele ser posición del dedo o pulgar mal puesto detrás del mástil.",
+  },
+  cambiosAcordes: {
+    keywords: ["cambio de acorde", "cambios de acorde", "cambiar acorde", "transicion entre acordes"],
+    title: "Cómo agilizar cambios de acordes",
+    short: "Los cambios mejoran cuando entrenas la TRANSICIÓN, no los acordes por separado.",
+    explanation: "El problema rara vez es el acorde A o el acorde B: es el medio segundo entre ellos. Esa transición se entrena aislada, lenta y con muchas repeticiones.",
+    exercises: [
+      "Toma solo DOS acordes. Cámbialos sin rasguear, lento, 20 veces seguidas.",
+      "Busca el 'dedo guía': uno que se pueda mantener o moverse en línea recta entre los dos acordes.",
+      "Cambia al ritmo de un metrónomo lento (60 BPM): rasgueo - cambio en 1 tiempo - rasgueo.",
+      "Aumenta velocidad solo cuando el cambio salga limpio 8-10 veces sin falla.",
+      "Después agrega un tercer acorde y repite el proceso.",
+    ],
+    rule: "Mejor 2 acordes que cambien limpios que 5 que cambien sucios.",
+  },
+  escalas: {
+    keywords: ["escala", "escalas", "scale"],
+    title: "Cómo practicar escalas",
+    short: "Las escalas no son ejercicio aburrido: son el vocabulario musical. Sin escalas no hay improvisación ni comprensión melódica.",
+    explanation: "Una escala se interioriza cuando puedes (1) tocarla sin pensar, (2) cantarla, (3) reconocerla cuando suena y (4) usarla para crear una frase corta.",
+    exercises: [
+      "Toca la escala lenta, dos veces seguidas, sin parar entre subida y bajada.",
+      "Cántala mientras la tocas.",
+      "Toca en tercios: 1-3, 2-4, 3-5, 4-6... entrena el oído melódico.",
+      "Crea una frase corta de 4-6 notas usando solo las notas de la escala.",
+      "Tócala con metrónomo a 60 BPM, una nota por click. Luego dos notas por click.",
+    ],
+    rule: "Una escala que no puedes cantar todavía no está aprendida.",
+  },
+  rasgueo: {
+    keywords: ["rasgueo", "rasguear", "strumming", "punteo de rasgueo"],
+    title: "Cómo mejorar el rasgueo",
+    short: "El rasgueo es ritmo + muñeca relajada, no fuerza del brazo.",
+    explanation: "Un buen rasgueo se siente: la muñeca va suelta como un péndulo, el brazo apenas se mueve, y el patrón se mantiene aunque cambies de acorde.",
+    exercises: [
+      "Apaga las cuerdas con la mano izquierda y rasguea solo el patrón rítmico, sin acordes.",
+      "Cuenta en voz alta: '1 y 2 y 3 y 4 y' mientras rasgueas.",
+      "Mantén la mano derecha en movimiento constante (péndulo), aunque no toques todas las pasadas.",
+      "Cuando el patrón salga sin pensar, súmale UN acorde fijo.",
+      "Después agrega cambios de acordes manteniendo el patrón.",
+    ],
+    rule: "Si pierdes el patrón al cambiar de acorde, simplifica el ritmo antes de añadir más acordes.",
+  },
+  digitacion: {
+    keywords: ["digitacion", "fingering", "dedos"],
+    title: "Cómo trabajar digitación",
+    short: "La digitación correcta ahorra movimiento y previene tensión.",
+    explanation: "Cada dedo tiene un rol; cambiar la digitación cada vez genera caos. Define una digitación, márcala y practícala siempre igual hasta que sea automática.",
+    exercises: [
+      "Escribe los números de dedos sobre la partitura o tablatura.",
+      "Toca muy lento revisando que cada dedo cae donde decidiste.",
+      "Si un dedo se cansa o se traba, revisa si el codo o muñeca están torcidos.",
+      "Repite el fragmento 5 veces con la misma digitación, sin cambiar.",
+    ],
+    rule: "Digitación clara hoy = velocidad limpia mañana.",
+  },
+  pua: {
+    keywords: ["pua", "plumilla", "pick", "pajuela"],
+    title: "Cómo trabajar la púa",
+    short: "Sostén la púa firme pero relajado: ni floja ni tensa.",
+    explanation: "La púa se toma entre el pulgar y el lado del índice, sale poco material (3-5 mm), y el movimiento viene de la muñeca, no del codo.",
+    exercises: [
+      "Toca una sola cuerda alternando abajo-arriba con metrónomo lento.",
+      "Apóyate ligeramente con el meñique en la guitarra para tener punto fijo.",
+      "Practica triadas de 3 notas alternando púa.",
+      "Si la púa se te resbala, no la aprietes más; revisa el ángulo de la mano.",
+    ],
+    rule: "Si los dedos se tensan, la culpa suele ser la púa.",
+  },
+  afinacion: {
+    keywords: ["afina", "afinacion", "desafin", "tuning"],
+    title: "Cómo trabajar la afinación",
+    short: "La afinación es 50% del instrumento y 100% de la escucha.",
+    explanation: "Afinar bien no es solo usar el afinador: es entrenar el oído para reconocer cuándo algo está alto o bajo. En canto y violín además depende de cómo apoyas y colocas.",
+    exercises: [
+      "Afina con afinador y luego intenta afinar de oído comparando con la 5a cuerda.",
+      "Toca una nota, ciérrate los ojos y reprodúcela con la voz.",
+      "En canto/violín: empieza por intervalos pequeños (segundas, terceras) antes de saltos grandes.",
+      "Grábate y escucha sin juicio: ¿dónde te subes o bajas?",
+    ],
+    rule: "Tu oído mejora cuando lo entrenas a propósito, no solo tocando.",
+  },
+  lectura: {
+    keywords: ["leer", "lectura", "partitura", "leer musica", "lectura musical"],
+    title: "Cómo mejorar la lectura musical",
+    short: "Leer música es como leer letras: empieza por sílabas (figuras y notas), luego frases, luego canciones.",
+    explanation: "La lectura mejora con poco-pero-diario. 10 minutos al día durante 30 días valen más que 2 horas el domingo.",
+    exercises: [
+      "Reconoce 5 notas sin instrumento, solo mirando partitura, en menos de 10 segundos cada una.",
+      "Lee SOLO el ritmo (palmas) antes de tocar las notas.",
+      "Lee piezas un nivel por DEBAJO del tuyo: la lectura se entrena con cantidad, no con dificultad.",
+      "No mires las manos. Mira la partitura. Si fallas, vuelve atrás.",
+    ],
+    rule: "La lectura se entrena leyendo cosas fáciles, no peleando con cosas difíciles.",
+  },
+  improvisacion: {
+    keywords: ["improvis", "solo", "improvisar"],
+    title: "Cómo empezar a improvisar",
+    short: "Improvisar no es 'tocar cualquier cosa': es decir algo con un vocabulario que ya conoces.",
+    explanation: "Improvisar limpio empieza con poco material: una escala, un par de ritmos, una intención. La libertad viene después.",
+    exercises: [
+      "Toma 3 notas de una escala y crea 10 frases distintas con SOLO esas 3 notas.",
+      "Improvisa sobre un acorde (1 minuto) usando solo blancas y negras.",
+      "Imita un solo corto de tu artista favorito, nota por nota, antes de inventar el tuyo.",
+      "Graba 30 segundos tuyos improvisando y escucha qué te gusta para repetirlo.",
+    ],
+    rule: "Menos notas con intención > muchas notas al azar.",
+  },
+  postura: {
+    keywords: ["postura", "posicion", "como sentarme", "como pararme"],
+    title: "Postura correcta",
+    short: "Buena postura = menos tensión, mejor sonido, menos dolor.",
+    explanation: "La postura no es estética: es eficiencia. Cuello relajado, hombros bajos, espalda apoyada (si estás sentado), peso distribuido.",
+    exercises: [
+      "Antes de tocar, haz una revisión: cuello, hombros, codos, muñecas, espalda. ¿Algo está tenso? Suéltalo.",
+      "Cada 5 minutos de práctica, suelta hombros y respira hondo.",
+      "Grábate de perfil practicando. Verás si te encorvas o levantas los hombros.",
+    ],
+    rule: "Si te duele algo después de practicar, no es 'normal': revisa postura.",
+  },
+  respiracion: {
+    keywords: ["respiracion", "respirar", "aire", "fuelle", "diafragm"],
+    title: "Cómo trabajar la respiración",
+    short: "Respirar bien no es 'inflar mucho': es controlar y sostener el aire.",
+    explanation: "La respiración diafragmática (abdomen se expande, no los hombros) sostiene mejor el sonido y reduce tensión, sea cantando, tocando flauta o controlando los nervios.",
+    exercises: [
+      "Acostado/a, pon un libro en el abdomen. Inhala lento subiéndolo. Exhala despacio bajándolo.",
+      "Inhala 4 segundos, retén 2, exhala 6. Repite 5 veces antes de cantar/tocar.",
+      "Lee una frase en voz alta sin tomar aire en el medio. Si no alcanza, vuelve a empezar.",
+    ],
+    rule: "Si te quedas sin aire al final de la frase, planifica respiraciones antes, no después.",
+  },
+  ritmo: {
+    keywords: ["ritmo", "pulso", "metronomo", "metrónomo", "tiempo", "compas"],
+    title: "Cómo trabajar el ritmo",
+    short: "El ritmo se siente primero en el cuerpo, después en el instrumento.",
+    explanation: "Si no puedes palmear un ritmo, no podrás tocarlo bien. El metrónomo es tu mejor profesor de pulso (también el más honesto).",
+    exercises: [
+      "Palmea el ritmo antes de tocarlo. Si fallas palmeando, no lo intentes en el instrumento aún.",
+      "Camina al pulso del metrónomo a 60 BPM.",
+      "Subdivide en voz alta: '1 y 2 y 3 y 4 y' mientras tocas.",
+      "Practica con el metrónomo en tiempos DÉBILES (2 y 4) para sentir mejor el groove.",
+    ],
+    rule: "Un buen ritmo lento es mejor que un ritmo rápido acelerado.",
+  },
+  memoria: {
+    keywords: ["memori", "olvid", "no me acuerdo", "memorizar"],
+    title: "Cómo memorizar una pieza",
+    short: "Memorizar no es repetir muchas veces: es construir 'agarraderas' mentales.",
+    explanation: "Memoria muscular + memoria visual + memoria auditiva + memoria estructural. Si solo tienes una, te quedas en blanco. Si tienes las cuatro, la pieza es tuya.",
+    exercises: [
+      "Divide la pieza en secciones cortas. Aprende cada una por separado.",
+      "Toca sin mirar las manos.",
+      "Toca con los ojos cerrados.",
+      "Empieza la pieza desde compases distintos (no siempre desde el principio).",
+      "Cántala o tararea entera sin tocar.",
+    ],
+    rule: "Si solo puedes empezar desde el inicio, no la tienes memorizada.",
+  },
+  oido: {
+    keywords: ["oido", "sacar de oido", "transcribir", "oido musical"],
+    title: "Cómo entrenar el oído",
+    short: "El oído mejora cuando lo usas a propósito, no solo escuchando música de fondo.",
+    explanation: "Entrenar el oído es comparar lo que oyes con lo que sabes nombrar. Empieza con intervalos pequeños y canciones simples.",
+    exercises: [
+      "Saca de oído canciones de tu artista favorito, una nota a la vez.",
+      "Compara intervalos: do-re, do-mi, do-sol. Aprende a reconocerlos.",
+      "Canta una nota, tócala en el instrumento. ¿Coincidieron?",
+      "Identifica el primer acorde de canciones que escuches en tu día.",
+    ],
+    rule: "El oído musical no es talento: es horas de comparar con atención.",
+  },
+  nervios: {
+    keywords: ["nervio", "miedo escenico", "presenta", "publico", "ansiedad"],
+    title: "Cómo manejar nervios escénicos",
+    short: "Los nervios no se quitan: se entrenan. La meta no es no sentirlos, es saber tocar A PESAR de sentirlos.",
+    explanation: "El cuerpo activa adrenalina cuando algo importa. Esa adrenalina es útil si la canalizas; si la peleas, te bloquea.",
+    exercises: [
+      "Practica tu pieza HABLANDO antes (cuenta a alguien qué va a pasar en cada parte).",
+      "Tócala para una persona antes de tocar para muchas.",
+      "Practica la entrada y el cierre 5 veces seguidas: son los puntos más vulnerables.",
+      "Antes de salir: 3 respiraciones profundas, hombros sueltos, una sonrisa breve (cambia la química).",
+    ],
+    rule: "Si te tiembla la mano, no la pelees: respira y dale el primer compás más lento de lo que quisieras.",
+  },
+};
+
+export function detectTopic(text = "") {
+  const t = strip(text);
+  if (!t) return null;
+  for (const key of Object.keys(TOPICS)) {
+    const topic = TOPICS[key];
+    if (topic.keywords.some((k) => t.includes(strip(k)))) {
+      return { key, ...topic };
+    }
+  }
+  return null;
+}
+
+// Detecta si la pregunta es del tipo "ejercicios para X" o "cómo mejorar X"
+export function isExerciseRequest(text = "") {
+  const t = strip(text);
+  return /ejercici|como mejor|como practic|tips para|recomenda|que hago para/.test(t);
 }
 
 // Frases distintivas — se rotan para que MusiCoach no suene canned
