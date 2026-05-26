@@ -498,44 +498,7 @@ function renderCoachText(text = "") {
 }
 
 function coachCharSvg(size = 48) {
-  const uid = Math.random().toString(36).slice(2, 8);
-  return `<svg width="${size}" height="${size}" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <defs>
-      <linearGradient id="mcBg${uid}" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
-        <stop offset="0" stop-color="#6d28d9"/>
-        <stop offset=".55" stop-color="#a21caf"/>
-        <stop offset="1" stop-color="#db2777"/>
-      </linearGradient>
-      <radialGradient id="mcGloss${uid}" cx="32%" cy="22%" r="65%">
-        <stop offset="0" stop-color="#ffffff" stop-opacity=".35"/>
-        <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
-      </radialGradient>
-    </defs>
-    <!-- Insignia hexagonal: entrenamiento + estructura -->
-    <path d="M24 3 L41.5 13 L41.5 35 L24 45 L6.5 35 L6.5 13 Z" fill="url(#mcBg${uid})" stroke="#4c1d95" stroke-width=".8" stroke-linejoin="round"/>
-    <path d="M24 3 L41.5 13 L41.5 35 L24 45 L6.5 35 L6.5 13 Z" fill="url(#mcGloss${uid})"/>
-    <!-- Audifonos: musica seria, foco -->
-    <path d="M13 24 Q24 14 35 24" stroke="white" stroke-width="2.2" fill="none" stroke-linecap="round"/>
-    <rect x="10.8" y="22" width="5.4" height="9" rx="2.2" fill="white"/>
-    <rect x="31.8" y="22" width="5.4" height="9" rx="2.2" fill="white"/>
-    <circle cx="13.5" cy="26.5" r="1.3" fill="#a21caf"/>
-    <circle cx="34.5" cy="26.5" r="1.3" fill="#a21caf"/>
-    <!-- Cejas sutiles: determinacion sin dureza -->
-    <path d="M18 24.5 L22 25.3" stroke="white" stroke-width="1.4" stroke-linecap="round" opacity=".7"/>
-    <path d="M30 24.5 L26 25.3" stroke="white" stroke-width="1.4" stroke-linecap="round" opacity=".7"/>
-    <!-- Ojos: pequenos, despiertos -->
-    <circle cx="20" cy="28" r="1.65" fill="white"/>
-    <circle cx="28" cy="28" r="1.65" fill="white"/>
-    <circle cx="20.4" cy="27.6" r=".55" fill="#4c1d95"/>
-    <circle cx="28.4" cy="27.6" r=".55" fill="#4c1d95"/>
-    <!-- Sonrisa ligera y confiada -->
-    <path d="M20 33.5 Q24 36 28 33.5" stroke="white" stroke-width="1.9" fill="none" stroke-linecap="round"/>
-    <!-- Nota musical flotante: acento -->
-    <g opacity=".9" transform="translate(36 6)">
-      <ellipse cx="0" cy="4" rx="1.7" ry="1.4" fill="white"/>
-      <path d="M1.55 4 L1.55 -1 L4.4 -1.7" stroke="white" stroke-width="1.2" stroke-linecap="round" fill="none"/>
-    </g>
-  </svg>`;
+  return `<img src="assets/musicoach.png" width="${size}" height="${size}" alt="MusiCoach" class="coach-avatar-img" loading="lazy" decoding="async" />`;
 }
 
 function renderCoachBox() {

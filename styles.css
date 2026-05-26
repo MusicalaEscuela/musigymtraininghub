@@ -264,17 +264,24 @@ input:focus, select:focus, textarea:focus { border-color: rgba(124,58,237,.52); 
 }
 .coach-bubble-btn {
   pointer-events: all;
-  width: 62px;
-  height: 62px;
+  width: 72px;
+  height: 72px;
   border: 0;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--primary), var(--primary-2));
-  box-shadow: 0 8px 28px rgba(124,58,237,.35);
+  background: transparent;
+  box-shadow: 0 10px 28px rgba(124,58,237,.28);
   display: grid;
   place-items: center;
-  padding: 7px;
-  transition: transform .18s ease, box-shadow .18s ease;
+  padding: 0;
+  transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
   animation: coach-idle 3.5s ease-in-out infinite;
+  filter: drop-shadow(0 6px 14px rgba(124,58,237,.35));
+}
+.coach-avatar-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 .coach-bubble-btn:hover {
   transform: scale(1.1) translateY(-3px);
