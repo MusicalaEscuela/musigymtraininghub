@@ -28,6 +28,15 @@ import {
   monthRange,
   uid,
 } from "./utils.js";
+import {
+  getInstrumentKnowledge,
+  levelInfo,
+  sessionShape,
+  pickPhrase,
+  pickUnblock,
+  detectChallengeHint,
+  CREA,
+} from "./coach-knowledge.js";
 
 const C = CONFIG.collections;
 
@@ -595,40 +604,7 @@ function coachFormatList(items = []) {
 }
 
 function coachInstrumentTips(instrument = "") {
-  const normalized = normalizeText(instrument);
-  if (normalized.includes("guitarra") || normalized.includes("ukelele") || normalized.includes("bajo")) {
-    return {
-      warmup: "Revisa postura, afinación, respiración y movilidad suave de manos. Toca lento y escucha si cada nota sale limpia.",
-      technique: "Practica por fragmentos cortos: mano izquierda relajada, mano derecha constante y cambios sin afán.",
-      explain: "Cuando algo no suena bien, no siempre es que estés tocando mal. Puede ser afinación, postura, presión, ritmo o velocidad. La música, tan humilde ella, exige revisar todo a la vez.",
-    };
-  }
-  if (normalized.includes("piano")) {
-    return {
-      warmup: "Siéntate cómodo/a, relaja hombros y muñecas, y toca lento con dedos conscientes antes de subir velocidad.",
-      technique: "Trabaja manos por separado, luego une lentamente. La meta no es correr, es sonar claro.",
-      explain: "En piano conviene separar coordinación, lectura y sonido. Si juntas todo de una, el cerebro hace motín, muy entendible.",
-    };
-  }
-  if (normalized.includes("canto")) {
-    return {
-      warmup: "Haz respiración suave, vocalizaciones cómodas y escucha tu cuerpo antes de exigir volumen.",
-      technique: "Trabaja una frase corta cuidando respiración, afinación, apoyo y claridad del texto.",
-      explain: "En canto el cuerpo es el instrumento, así que postura, respiración y escucha son parte del sonido, no accesorios decorativos.",
-    };
-  }
-  if (normalized.includes("danza") || normalized.includes("ballet")) {
-    return {
-      warmup: "Activa articulaciones, postura, respiración y conciencia del espacio antes de hacer movimientos grandes.",
-      technique: "Trabaja una secuencia corta con control, dirección, memoria corporal y musicalidad.",
-      explain: "En danza no es solo memorizar pasos. Es cuerpo, ritmo, intención, espacio y energía, porque aparentemente una sola cosa era muy fácil.",
-    };
-  }
-  return {
-    warmup: "Prepara cuerpo, atención y materiales. Define una intención concreta para esta práctica.",
-    technique: "Trabaja una habilidad pequeña, medible y repetible. Mejor poco y claro que mucho y borroso.",
-    explain: "Cuando algo no sale, divide el reto en partes: técnica, comprensión, ritmo, memoria y confianza.",
-  };
+  return getInstrumentKnowledge(instrument);
 }
 
 export async function saveCoachLog(studentId, entry = {}) {
@@ -747,60 +723,93 @@ export function detectCoachIntent(text = "", explicitIntent = "") {
   if (/(que practico|practicar hoy|que hago|rutina|hoy deberia)/.test(q)) return "practice";
   if (/(objetivo|objetivos|meta|metas|vamos por)/.test(q)) return "objectives";
   if (/(ruta|sigue|siguiente|avance|nivel|voy bien)/.test(q)) return "route";
-  if (/(no entiendo|explica|que es|como funciona|duda)/.test(q)) return "explain";
-  if (/(miedo|pena|nervio|nervios|ansiedad|temor)/.test(q)) return "fear";
-  if (/(bloque|frustra|no me sale|sin ganas|motiva|motivame|motívame)/.test(q)) return "motivation";
-  if (/(facil|fácil|mas corto|más corto|cansado|cansada)/.test(q)) return "easy";
-  if (/(dificil|difícil|reto|avanzado|mas duro|más duro)/.test(q)) return "challenge";
+  if (/(no entiendo|explica|que es|como funciona|duda|por que|porque)/.test(q)) return "explain";
+  if (/(miedo|pena|nervio|nervios|ansiedad|temor|verguenza|vergüenza|publico|público|escenario)/.test(q)) return "fear";
+  if (/(bloque|frustra|no me sale|sin ganas|motiva|motivame|motívame|aburri|rendir|rindo)/.test(q)) return "motivation";
+  if (/(facil|fácil|mas corto|más corto|cansado|cansada|poco tiempo|rapido|rápido)/.test(q)) return "easy";
+  if (/(dificil|difícil|reto|avanzado|mas duro|más duro|exigente)/.test(q)) return "challenge";
+  if (/(crea|metodologia|metodología|musicala|enfoque)/.test(q)) return "method";
   return "general";
+}
+
+function coachSeed(...parts) {
+  const s = parts.filter(Boolean).join("|");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h || Date.now();
+}
+
+function buildFiveStep({ plan, text, intent, instrumentInfo, challenge, seed }) {
+  const validate = pickPhrase("validate", seed);
+  const diagnose = challenge
+    ? `Por lo que cuentas, el foco está en ${challenge} dentro de ${plan.focusTitle.toLowerCase()}.`
+    : pickPhrase("diagnose", seed + 1);
+  const action = `Haz esto: ${instrumentInfo.fixes[seed % instrumentInfo.fixes.length] || instrumentInfo.technique}.`;
+  const meta = pickPhrase("microMeta", seed + 2);
+  const close = pickPhrase("motivate", seed + 3);
+  return `${validate}\n\n${diagnose}\n\n${action}\n\n${meta}\n\n${close}`;
 }
 
 export function buildCoachResponse({ student, objectives = [], routine = null, progress = [], songs = [], diagnostics = [], evaluations = [], sessions = [], text = "", intent = "" }) {
   const plan = buildCoachPlan({ student, objectives, routine, progress, songs, diagnostics, evaluations, sessions });
   const detected = detectCoachIntent(text, intent);
+  const instrumentInfo = getInstrumentKnowledge(plan.instrument);
+  const level = levelInfo(plan.level);
+  const challenge = detectChallengeHint(text);
+  const seed = coachSeed(student?.id, detected, text, sessions.length);
+
   const activeList = plan.activeObjectives.length
     ? plan.activeObjectives.map((o, index) => `${index + 1}. ${o.title}${o.description ? `: ${o.description}` : ""}`).join("\n")
-    : "Todavía no tienes objetivos activos específicos. Entonces tomo tu ruta como brújula principal, porque improvisar sin mapa suena libre hasta que uno se pierde.";
+    : "Todavía no tienes objetivos activos específicos. Tomo tu ruta como brújula, porque improvisar sin mapa suena libre hasta que uno se pierde.";
   const blockList = plan.blocks.map((block) => `• ${block.minutes || 5} min · ${block.title}: ${block.instructions}`).join("\n");
 
   const responses = {
     practice: {
       title: "Plan de práctica de hoy",
-      body: `${plan.headline}.\n\nHazlo así:\n${blockList}\n\nPor qué hoy: ${plan.why || "porque este es el siguiente paso más lógico según tu instrumento, nivel y ruta."}\n\n${plan.encouragement}`,
+      body: `${plan.headline}.\n\nHazlo así:\n${blockList}\n\nPor qué hoy: ${plan.why || `porque este es el siguiente paso más lógico para tu nivel (${level.name}) y tu ruta en ${plan.instrument}.`}\n\n${plan.encouragement}`,
     },
     objectives: {
       title: "Vamos por tus objetivos",
-      body: `Estos son los objetivos que más conviene atacar ahora:\n${activeList}\n\nPara hoy, enfócate en: ${plan.focusTitle}.\n\nNo intentes ganarle a todos los objetivos en una tarde. Eso es una emboscada disfrazada de productividad.` ,
+      body: `Estos son los objetivos que más conviene atacar ahora:\n${activeList}\n\nPara hoy, enfócate en: ${plan.focusTitle}.\n\nNo intentes ganarle a todos los objetivos en una tarde. Eso es una emboscada disfrazada de productividad.`,
     },
     route: {
       title: "Siguiente paso de ruta",
       body: plan.routeStep
         ? `Tu siguiente paso recomendado es: ${plan.routeStep.title}.\n\nComponente: ${plan.routeStep.component}.\nDescripción: ${plan.routeStep.description}\n\nHoy trabaja esto con un ejercicio corto y registra qué tan claro quedó del 1 al 5.`
-        : "No encontré un punto de ruta pendiente. Eso puede ser buena señal o simplemente falta de datos, porque los sistemas también tienen sus misterios baratos.",
+        : `No encontré un punto de ruta pendiente. En tu nivel (${level.name}) el foco suele ser: ${level.focus}`,
     },
     explain: {
       title: "Te lo explico fácil",
-      body: `${coachInstrumentTips(plan.instrument).explain}\n\nSobre tu duda: “${safeText(text) || "lo que estás trabajando"}”.\n\nHaz esto: identifica una sola parte que no entiendes, pruébala lento, compara con el ejemplo del profe y escribe una pregunta concreta. Si quieres, guárdala para la próxima sesión.` ,
+      body: buildFiveStep({ plan, text, intent: detected, instrumentInfo, challenge, seed }) +
+        `\n\nClave de ${plan.instrument}: ${instrumentInfo.explain}` +
+        (text ? `\n\nSobre tu duda: "${safeText(text)}" — primero identifica UNA sola parte que no entiendes, pruébala lento, compárala con el ejemplo del profe y escribe una pregunta concreta para guardarla.` : ""),
     },
     fear: {
       title: "Con nervios también se practica",
-      body: `Sentir miedo, pena o nervios no significa que vas mal. Significa que te importa. Hoy no busques demostrar nada. Busca una repetición tranquila, una mejora pequeña y un cierre honesto.\n\nPráctica suave sugerida:\n• 3 min respirar y preparar el cuerpo.\n• 7 min repetir el fragmento más fácil.\n• 5 min tocar o hacer solo lo que ya conoces.\n• 2 min escribir una duda para tu profe.\n\nLa valentía artística casi nunca se siente heroica. A veces solo es volver a intentarlo sin tratarte horrible.` ,
+      body: `${pickPhrase("validate", seed)}\n\nSentir miedo, pena o nervios significa que te importa. Hoy no busques demostrar nada: busca una repetición tranquila, una mejora pequeña y un cierre honesto.\n\nPráctica suave sugerida:\n• 3 min respirar y preparar el cuerpo.\n• 7 min repetir el fragmento más fácil de ${plan.focusTitle.toLowerCase()}.\n• 5 min tocar/hacer solo lo que ya conoces.\n• 2 min escribir una duda para tu profe.\n\nLa valentía artística casi nunca se siente heroica. A veces solo es volver a intentarlo sin tratarte horrible.`,
     },
-    motivation: {
-      title: "Cuando algo no sale",
-      body: `No estás bloqueado/a: estás en la parte donde el cerebro todavía está armando el puente. Molesto, sí. Normal, también.\n\nHoy reduce el reto: toma ${plan.focusTitle}, baja la velocidad a la mitad y repite solo un fragmento. Si mejora un 5%, ya hubo avance. La práctica real suele verse menos épica y más como alguien repitiendo una cosa chiquita muchas veces, porque el arte decidió ser así de dramático.` ,
-    },
+    motivation: (() => {
+      const unblock = pickUnblock(seed);
+      return {
+        title: "Cuando algo no sale",
+        body: `${pickPhrase("validate", seed)}\n\nNo estás bloqueado/a: estás en la parte donde el cerebro todavía arma el puente. Probemos una estrategia concreta.\n\n**${unblock.name}:** ${unblock.how}\n\nAplícalo a ${plan.focusTitle.toLowerCase()}${challenge ? ` (foco: ${challenge})` : ""}. ${pickPhrase("microMeta", seed + 1)}\n\n${pickPhrase("motivate", seed + 2)}`,
+      };
+    })(),
     easy: {
       title: "Versión corta y suave",
-      body: `Hagamos una práctica de mantenimiento:\n• 4 min calentamiento.\n• 8 min ${plan.focusTitle}.\n• 5 min aplicar en algo que ya conozcas.\n• 3 min cierre: escribe qué salió mejor.\n\nHoy la meta es no romper la continuidad. A veces eso ya es bastante, aunque suene poco glamuroso.` ,
+      body: `Hagamos una práctica de mantenimiento (no de heroísmo):\n${sessionShape(15).map((b) => `• ${b.minutes} min · ${b.name}: ${b.instructions.replace(/foco/gi, plan.focusTitle.toLowerCase())}`).join("\n")}\n\nHoy la meta es no romper la continuidad. A veces eso ya es bastante.`,
     },
     challenge: {
       title: "Versión reto",
-      body: `Te subo el nivel, pero con criterio, no como videojuego en dificultad imposible:\n• 5 min calentamiento técnico.\n• 15 min ${plan.focusTitle} con metrónomo, conteo o referencia clara.\n• 15 min aplicación en repertorio o creación.\n• 5 min grabarte y escuchar un detalle a mejorar.\n\nReto extra: explica en una frase qué estás mejorando y cómo sabrás que mejoró.` ,
+      body: `Te subo el nivel, pero con criterio (no como videojuego imposible):\n${sessionShape(45).map((b) => `• ${b.minutes} min · ${b.name}: ${b.instructions}`).join("\n")}\n\nReto extra: explica en una frase qué estás mejorando en ${plan.focusTitle.toLowerCase()} y cómo sabrás que mejoró.`,
+    },
+    method: {
+      title: "Cómo practicamos en Musicala",
+      body: `En Musicala usamos la metodología **CREA**:\n\n• **C** — ${CREA.C}\n• **R** — ${CREA.R}\n• **E** — ${CREA.E}\n• **A** — ${CREA.A}\n\nEn tu caso (${plan.instrument}, nivel ${level.name.toLowerCase()}), el foco actual es: ${level.focus}\n\nHito de tu nivel: ${level.hito}`,
     },
     general: {
       title: "Estoy contigo en esta práctica",
-      body: `Por lo que me dices, lo más útil es volver al foco de hoy: ${plan.focusTitle}.\n\nPuedes preguntarme: “¿qué practico hoy?”, “explícame esto”, “qué sigue en mi ruta”, “motívame” o “hazlo más fácil”. Yo respondo con base en tus objetivos, ruta, canciones, diagnóstico y últimas sesiones, como bot aplicado y no como adorno caro.` ,
+      body: `${pickPhrase("validate", seed)}\n\nPor lo que me dices, lo más útil es volver al foco: ${plan.focusTitle}.\n\nPuedes preguntarme: "¿qué practico hoy?", "explícame esto", "qué sigue en mi ruta", "motívame", "hazlo más fácil" o "ponme un reto". Respondo con base en tus objetivos, ruta, canciones, diagnóstico y últimas sesiones.\n\n${pickPhrase("closingQuestion", seed)}`,
     },
   };
 
