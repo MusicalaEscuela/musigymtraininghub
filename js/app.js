@@ -59,6 +59,7 @@ const state = {
   students: [],
   users: [],
   selectedStudentId: "",
+  studentSearch: "",
   currentViewMode: "admin",
   previewStudentId: "",
   selectedEvaluationSessionId: "",
@@ -108,12 +109,19 @@ async function loadBaseData() {
   state.users = users;
   state.library = library;
 
-  if (state.profile?.isStudent && !state.selectedStudentId) {
-    const student = await findStudentByEmail(state.profile.email).catch(() => null);
-    if (student) state.selectedStudentId = student.id;
+  if (state.profile?.isStudent) {
+    let student = null;
+    const profileStudentId = state.profile.studentId || state.profile.studentKey || "";
+    if (profileStudentId) {
+      student = await getStudent(profileStudentId).catch(() => null);
+    }
+    if (!student) {
+      student = await findStudentByEmail(state.profile.email).catch(() => null);
+    }
+    if (student?.isMusiGym) state.selectedStudentId = student.id;
   }
 
-  if (!state.selectedStudentId && students.length) {
+  if (!state.profile?.isStudent && !state.selectedStudentId && students.length) {
     state.selectedStudentId = students[0].id;
   }
 
@@ -242,7 +250,7 @@ function renderLogin() {
         <button class="btn primary large" data-action="login">Entrar con Google</button>
       </article>
       <aside class="feature-stack">
-        ${["Rutinas automáticas", "Bot de práctica", "Llamado al profe", "Informes mensuales", "Biblioteca embebida", "Proceso del estudiante"].map((x) => `<div class="mini-feature">${escapeHtml(x)}</div>`).join("")}
+        ${["Rutinas automáticas", "Bot de práctica", "Llamado al profe", "Informes mensuales", "Biblioteca de practica", "Proceso del estudiante"].map((x) => `<div class="mini-feature">${escapeHtml(x)}</div>`).join("")}
       </aside>
     </section>
   `;
@@ -326,7 +334,7 @@ function renderStudent() {
     return `
       <section class="center-card">
         <h2>Aún no encontramos tu perfil MusiGym</h2>
-        <p>Tu correo debe coincidir con el estudiante sincronizado desde Sheets y estar activo en MusiGym. Sí, la burocracia también llegó al arte, qué sorpresa.</p>
+        <p>Revisa que el correo de ingreso sea el mismo que aparece en tu ficha y que tu estado MusiGym este activo.</p>
       </section>
     `;
   }
@@ -369,9 +377,9 @@ function renderCallsBox() {
 }
 
 function renderStudentList(showAllControls) {
-  const q = safeText(document.getElementById("studentSearch")?.value || "");
+  const q = state.studentSearch || "";
   const filtered = state.students.filter((student) => {
-    if (!q) return true;
+    if (!q.trim()) return true;
     const hay = [student.name, student.email, student.instrument, student.art, student.emphasis].join(" ");
     return normalizeText(hay).includes(normalizeText(q));
   });
@@ -401,22 +409,31 @@ function renderSelectedStudentWorkspace(mode) {
   if (!state.selectedStudentId) return "";
   if (!state.bundle) return renderLoading("Cargando proceso del estudiante...");
   const { student } = state.bundle;
+  const roleCopy = {
+    admin: { eyebrow: "Ficha del estudiante", routineButton: "Generar rutina sugerida", showCoach: false },
+    docente: { eyebrow: "Seguimiento pedagogico", routineButton: "Preparar rutina", showCoach: false },
+    estudiante: { eyebrow: student.art || "Mi proceso", routineButton: "", showCoach: true },
+  }[mode] || {};
   return `
     <section class="student-workspace">
       <div class="profile-banner">
         <div>
-          <p class="eyebrow">${escapeHtml(student.art || "Proceso artístico")}</p>
+          <p class="eyebrow">${escapeHtml(roleCopy.eyebrow)}</p>
           <h2>${escapeHtml(student.name)}</h2>
-          <p>${escapeHtml(student.instrument || "Sin instrumento")} · ${escapeHtml(student.level || "Sin nivel")} · ${escapeHtml(student.emphasis || "Sin énfasis")}</p>
+          <p>${escapeHtml(student.instrument || "Sin instrumento")} - ${escapeHtml(student.level || "Sin nivel")} - ${escapeHtml(student.emphasis || "Sin enfasis")}</p>
+          <div class="student-meta-line">
+            <span>Edad: ${escapeHtml(student.age || student.edad || "Sin dato")}</span>
+            <span>Correo: ${escapeHtml(student.email || student.correo || "Sin correo")}</span>
+          </div>
         </div>
         <div class="banner-actions">
-          ${mode !== "estudiante" ? `<button class="btn secondary" data-action="generate-routine">Crear rutina automática</button>` : ""}
+          ${mode !== "estudiante" ? `<button class="btn secondary" data-action="generate-routine">${escapeHtml(roleCopy.routineButton)}</button>` : ""}
           ${mode === "estudiante" ? `<button class="btn primary" data-action="call-teacher">Llamar al profe</button>` : ""}
-          <button class="btn ghost" data-action="coach-suggestion">Qué practico hoy</button>
+          ${mode === "estudiante" ? `<button class="btn ghost" data-action="coach-suggestion">Que practico hoy</button>` : ""}
         </div>
       </div>
       ${mode === "admin" ? renderStudentConfig(student) : ""}
-      ${renderCoachBox()}
+      ${roleCopy.showCoach ? renderCoachBox() : ""}
       <div class="module-grid">
         ${renderRoutineModule(mode)}
         ${renderRouteModule(mode)}
@@ -435,18 +452,28 @@ function renderSelectedStudentWorkspace(mode) {
 }
 
 function renderStudentConfig(student) {
+  const teacherUsers = state.users.filter((user) => (user.role || "") === "docente" || user.isMusiGymTeacher === true);
+  const teacherOptions = teacherUsers
+    .map((teacher) => `<option value="${escapeHtml(teacher.email || teacher.id)}" ${safeText(student.teacherEmail).toLowerCase() === safeText(teacher.email || teacher.id).toLowerCase() ? "selected" : ""}>${escapeHtml(teacher.name || teacher.email)}</option>`)
+    .join("");
   return `
     <section class="card compact">
-      <div class="section-header"><h3>Configuración MusiGym</h3><span class="badge ${student.isMusiGym ? "ok" : "warn"}">${student.isMusiGym ? "Activo" : "Inactivo"}</span></div>
+      <div class="section-header"><h3>Configuracion MusiGym</h3><span class="badge ${student.isMusiGym ? "ok" : "warn"}">${student.isMusiGym ? "Activo" : "Inactivo"}</span></div>
       <form class="form-grid" data-form="student-config">
         <input type="hidden" name="studentId" value="${escapeHtml(student.id)}" />
-        <label>Activo MusiGym <select name="isMusiGym"><option value="true" ${student.isMusiGym ? "selected" : ""}>Sí</option><option value="false" ${!student.isMusiGym ? "selected" : ""}>No</option></select></label>
+        <label>Activo MusiGym <select name="isMusiGym"><option value="true" ${student.isMusiGym ? "selected" : ""}>Si</option><option value="false" ${!student.isMusiGym ? "selected" : ""}>No</option></select></label>
         <label>Arte <select name="art">${optionList(CATALOGS.arts, student.art)}</select></label>
-        <label>Instrumento/área <select name="instrument">${optionList(CATALOGS.instruments, student.instrument)}</select></label>
-        <label>Énfasis <select name="emphasis">${optionList(CATALOGS.emphases, student.emphasis)}</select></label>
+        <label>Instrumento/area <select name="instrument">${optionList(CATALOGS.instruments, student.instrument)}</select></label>
+        <label>Enfasis <select name="emphasis">${optionList(CATALOGS.emphases, student.emphasis)}</select></label>
         <label>Nivel <select name="level">${optionList(CATALOGS.levels, student.level)}</select></label>
-        <label>Correo docente <input name="teacherEmail" value="${escapeHtml(student.teacherEmail || "")}" placeholder="docente@correo.com" /></label>
-        <button class="btn primary" type="submit">Guardar configuración</button>
+        <label>Docente asignado
+          <select name="teacherEmail">
+            <option value="">Sin docente asignado</option>
+            ${teacherOptions}
+          </select>
+          <small class="field-help">Elige un docente registrado en Docentes MusiGym.</small>
+        </label>
+        <button class="btn primary" type="submit">Guardar configuracion</button>
       </form>
     </section>
   `;
@@ -454,7 +481,7 @@ function renderStudentConfig(student) {
 
 function renderCoachBox() {
   const b = state.bundle;
-  const suggestion = b?.coachSuggestion || "Pide una recomendación y MusiCoach cruza objetivos, rutina, ruta, canciones y diagnóstico. Un mínimo de cordura algorítmica.";
+  const suggestion = b?.coachSuggestion || "Pide una recomendacion para organizar tu practica de hoy con tus objetivos, rutina, canciones y avances.";
   return `
     <section class="coach-box">
       <div class="musi-orb">M</div>
@@ -743,7 +770,7 @@ function renderLibraryModule() {
   });
   return `
     <section class="card module wide library-module">
-      <div class="section-header"><h3>Biblioteca de guitarra embebida</h3><span class="badge">${filtered.length}/${state.library.length}</span></div>
+      <div class="section-header"><h3>Biblioteca de guitarra</h3><span class="badge">${filtered.length}/${state.library.length}</span></div>
       <div class="library-filters">
         <input placeholder="Buscar recurso" value="${escapeHtml(q)}" data-action="library-filter" data-field="q" />
         <select data-action="library-filter" data-field="category"><option value="">Todas las categorías</option>${optionList(categories, category)}</select>
@@ -765,17 +792,18 @@ function renderLibraryModule() {
 }
 
 function renderRolesManager() {
+  const teachers = state.users.filter((user) => (user.role || "") === "docente" || user.isMusiGymTeacher === true);
   return `
     <section class="card">
-      <div class="section-header"><h2>Roles de acceso</h2><span class="badge">${state.users.length} usuarios</span></div>
-      <form class="form-grid" data-form="role">
-        <label>Correo <input name="email" placeholder="correo@musicala.com" required /></label>
-        <label>Nombre <input name="name" placeholder="Nombre" /></label>
-        <label>Rol <select name="role">${optionList(CATALOGS.roles, "docente")}</select></label>
-        <button class="btn primary" type="submit">Guardar rol</button>
+      <div class="section-header"><h2>Docentes MusiGym</h2><span class="badge">${teachers.length} docente(s)</span></div>
+      <p class="helper">Agrega aqui los docentes autorizados para ingresar y atender estudiantes en MusiGym.</p>
+      <form class="form-grid" data-form="teacher-access">
+        <label>Nombre <input name="name" placeholder="Nombre del docente" required /></label>
+        <label>Correo <input type="email" name="email" placeholder="docente@correo.com" required /></label>
+        <button class="btn primary" type="submit">Guardar docente</button>
       </form>
       <div class="user-list">
-        ${state.users.map((u) => `<div><strong>${escapeHtml(u.name || u.email)}</strong><span>${escapeHtml(u.role || "estudiante")}</span><small>${escapeHtml(u.email || "")}</small></div>`).join("")}
+        ${teachers.map((u) => `<div><strong>${escapeHtml(u.name || u.email)}</strong><span>Docente MusiGym</span><small>${escapeHtml(u.email || "")}</small></div>`).join("") || `<p class="empty">Aun no hay docentes MusiGym registrados.</p>`}
       </div>
     </section>
   `;
@@ -804,15 +832,25 @@ async function handleSubmit(event) {
         emphasis: data.emphasis,
         level: data.level,
         teacherEmail: data.teacherEmail.toLowerCase(),
+        teacherName: state.users.find((user) => safeText(user.email).toLowerCase() === data.teacherEmail.toLowerCase())?.name || "",
       });
       setMessage("Configuración guardada.");
       await refreshSelected();
     }
 
-    if (type === "role") {
-      await saveUserRole(data.email, data);
-      setMessage("Rol guardado.");
+    if (type === "teacher-access") {
+      if (!data.name) throw new Error("Escribe el nombre del docente.");
+      if (!data.email || !data.email.includes("@")) throw new Error("Escribe un correo válido para el docente.");
+      await saveUserRole(data.email.toLowerCase(), {
+        name: data.name,
+        email: data.email.toLowerCase(),
+        role: "docente",
+        active: true,
+        isMusiGymTeacher: true,
+      });
+      setMessage("Docente MusiGym guardado.");
       state.users = await listUsers();
+      form.reset();
       render();
     }
 
@@ -857,7 +895,7 @@ async function handleSubmit(event) {
     }
   } catch (error) {
     console.error(error);
-    setMessage(error.message || "No se pudo guardar. Firebase decidió ponerse dramático.");
+    setMessage(error.message || "No se pudo guardar. Revisa la conexion e intenta nuevamente.");
   }
 }
 
@@ -979,7 +1017,7 @@ async function handleClick(event) {
       const host = document.getElementById("libraryFrameHost");
       if (host) {
         host.innerHTML = `
-          <div class="frame-toolbar"><strong>Vista embebida</strong><a class="btn tiny" href="${escapeHtml(btn.dataset.link)}" target="_blank" rel="noopener">Abrir externo si no carga</a></div>
+          <div class="frame-toolbar"><strong>Recurso seleccionado</strong><a class="btn tiny" href="${escapeHtml(btn.dataset.link)}" target="_blank" rel="noopener">Abrir en otra pesta?a</a></div>
           <iframe src="${escapeHtml(btn.dataset.link)}" title="Recurso de biblioteca"></iframe>
         `;
         host.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1025,6 +1063,7 @@ function handleInput(event) {
   }
 
   if (el.dataset.action === "student-search") {
+    state.studentSearch = el.value;
     render();
     const input = document.getElementById("studentSearch");
     if (input) {

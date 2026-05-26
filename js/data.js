@@ -127,14 +127,22 @@ export async function listUsers() {
 
 export async function saveUserRole(email, data) {
   const id = safeText(email).toLowerCase();
+  if (!id || !id.includes("@")) throw new Error("Escribe un correo valido para guardar el acceso.");
+  const ref = doc(db, C.users, id);
+  const snap = await getDoc(ref).catch(() => null);
+  const previous = snap?.exists() ? snap.data() : {};
+  const requestedRole = safeText(data.role) || previous.role || "estudiante";
+  const role = previous.role === "admin" && requestedRole === "docente" ? "admin" : requestedRole;
   await setDoc(
-    doc(db, C.users, id),
+    ref,
     {
-      email: safeText(email).toLowerCase(),
-      name: safeText(data.name),
-      role: safeText(data.role) || "estudiante",
+      email: id,
+      name: safeText(data.name) || previous.name || "",
+      role,
+      active: data.active ?? previous.active ?? true,
+      isMusiGymTeacher: requestedRole === "docente" ? true : data.isMusiGymTeacher ?? previous.isMusiGymTeacher ?? false,
       updatedAt: nowStamp(),
-      createdAt: data.createdAt || nowStamp(),
+      createdAt: previous.createdAt || data.createdAt || nowStamp(),
     },
     { merge: true }
   );
@@ -183,9 +191,20 @@ export async function findStudentByEmail(email) {
   const clean = safeText(email).toLowerCase();
   if (!clean) return null;
   const snap = await getDocs(query(collection(db, C.students), where("email", "==", clean), limit(1)));
-  if (snap.empty) return null;
-  const d = snap.docs[0];
-  return { id: d.id, ...d.data() };
+  if (!snap.empty) {
+    const d = snap.docs[0];
+    return { id: d.id, ...d.data() };
+  }
+
+  const allSnap = await getDocs(collection(db, C.students));
+  const match = allSnap.docs.find((d) => {
+    const data = d.data();
+    const candidates = [data.email, data.correo, data.correoElectronico, data.Email]
+      .map((value) => safeText(value).toLowerCase())
+      .filter(Boolean);
+    return candidates.includes(clean);
+  });
+  return match ? { id: match.id, ...match.data() } : null;
 }
 
 export async function getStudent(id) {

@@ -23,7 +23,6 @@ export const CONFIG = Object.freeze({
     bootstrapAdminEmails: [
       "alekcaballeromusic@gmail.com",
       "catalina.medina.leal@gmail.com",
-      "catalina.medina.lea@gmail.com",
       "imusicala@gmail.com",
     ],
   },

@@ -110,7 +110,7 @@ export async function getUserProfile(user) {
     ...saved,
     role,
     isAdmin: role === "admin",
-    isTeacher: role === "docente",
+    isTeacher: role === "docente" || saved.isMusiGymTeacher === true,
     isStudent: role === "estudiante",
     bootstrapAdmin,
   };
@@ -123,6 +123,7 @@ export async function getUserProfile(user) {
       email: cleanUser.email,
       photoURL: cleanUser.photoURL,
       role,
+      isMusiGymTeacher: saved.isMusiGymTeacher === true,
       lastLoginAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       createdAt: saved.createdAt || serverTimestamp(),
