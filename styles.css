@@ -134,9 +134,22 @@ input:focus, select:focus, textarea:focus { border-color: rgba(124,58,237,.52); 
 .profile-banner { padding: clamp(1rem, 2.5vw, 1.6rem); display: flex; justify-content: space-between; gap: 1rem; align-items: center; background: linear-gradient(135deg, rgba(124,58,237,.13), rgba(217,70,239,.11), rgba(56,189,248,.12)); }
 .profile-banner h2 { margin: 0; font-size: clamp(1.7rem, 4vw, 3rem); letter-spacing: -.06em; }
 .profile-banner p { margin: .3rem 0 0; color: var(--muted); }
+.student-meta-line { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .7rem; }
+.student-meta-line span {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255,255,255,.7);
+  color: var(--muted);
+  font-size: .88rem;
+  font-weight: 750;
+  padding: .38rem .65rem;
+}
 .banner-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
 .form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
 .form-grid label, .mini-form label { display: grid; gap: .3rem; color: var(--muted); font-size: .9rem; font-weight: 700; }
+.field-help { color: var(--muted); font-size: .78rem; font-weight: 600; line-height: 1.35; }
 .span-2 { grid-column: span 2; }
 .mini-form { display: grid; gap: .6rem; margin-top: .8rem; }
 
