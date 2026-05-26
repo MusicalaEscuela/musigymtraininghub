@@ -1,0 +1,23 @@
+{
+  "name": "MusiGym Musicala",
+  "short_name": "MusiGym",
+  "description": "Centro de práctica artística con rutas, bitácoras y seguimiento Musicala.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#fbf8ff",
+  "theme_color": "#8d5cf6",
+  "icons": [
+    {
+      "src": "./assets/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./assets/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,161 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function email() {
+      return signedIn() && request.auth.token.email != null
+        ? request.auth.token.email.lower()
+        : "";
+    }
+
+    function bootstrapAdmin() {
+      return email() in [
+        "alekcaballeromusic@gmail.com",
+        "catalina.medina.leal@gmail.com",
+        "imusicala@gmail.com"
+      ];
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/musigym_users/$(email()));
+    }
+
+    function role() {
+      return bootstrapAdmin()
+        ? "admin"
+        : exists(/databases/$(database)/documents/musigym_users/$(email()))
+          ? userDoc().data.role
+          : "estudiante";
+    }
+
+    function isAdmin() {
+      return signedIn() && role() == "admin";
+    }
+
+    function isTeacher() {
+      return signedIn()
+        && (
+          role() == "docente"
+          || role() == "admin"
+          || (
+            exists(/databases/$(database)/documents/musigym_users/$(email()))
+            && userDoc().data.isMusiGymTeacher == true
+          )
+        );
+    }
+
+    function ownsStudent(studentId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/musigym_students/$(studentId))
+        && get(/databases/$(database)/documents/musigym_students/$(studentId)).data.email == email();
+    }
+
+    function teachesStudent(studentId) {
+      return isTeacher()
+        && exists(/databases/$(database)/documents/musigym_students/$(studentId))
+        && (
+          isAdmin()
+          || get(/databases/$(database)/documents/musigym_students/$(studentId)).data.teacherEmail == email()
+          || get(/databases/$(database)/documents/musigym_students/$(studentId)).data.teacherEmail == ""
+        );
+    }
+
+    function nextQuestionsValidForStudent(studentId) {
+      // TODO: Firestore Rules cannot robustly validate every map inside a client-managed
+      // questions array across all update shapes. The frontend also enforces max 3
+      // pending questions and 300 characters per question before saving.
+      return request.resource.data.studentId == studentId
+        && request.resource.data.keys().hasOnly(["studentId", "questions", "updatedAt"])
+        && request.resource.data.questions is list
+        && request.resource.data.questions.size() <= 20;
+    }
+
+    match /musigym_users/{userId} {
+      allow read: if signedIn() && (isAdmin() || userId == email());
+      allow create: if signedIn() && (isAdmin() || userId == email() || bootstrapAdmin());
+      allow update, delete: if isAdmin();
+    }
+
+    match /musigym_students/{studentId} {
+      allow read: if signedIn() && (isAdmin() || teachesStudent(studentId) || ownsStudent(studentId));
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /musigym_objectives/{docId} {
+      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow create, update, delete: if signedIn() && (isAdmin() || teachesStudent(request.resource.data.studentId));
+    }
+
+    match /musigym_routines/{docId} {
+      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow create, update, delete: if signedIn() && (isAdmin() || teachesStudent(request.resource.data.studentId));
+    }
+
+    match /musigym_sessions/{docId} {
+      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow create, update, delete: if signedIn() && (isAdmin() || teachesStudent(request.resource.data.studentId));
+    }
+
+    match /musigym_diagnostics/{docId} {
+      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow create, update, delete: if signedIn() && (isAdmin() || teachesStudent(request.resource.data.studentId));
+    }
+
+    match /musigym_self_evaluations/{docId} {
+      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow create: if signedIn() && (isAdmin() || ownsStudent(request.resource.data.studentId) || teachesStudent(request.resource.data.studentId));
+      allow update, delete: if isAdmin() || ownsStudent(resource.data.studentId);
+    }
+
+    match /musigym_next_questions/{studentId} {
+      allow read: if signedIn() && (isAdmin() || teachesStudent(studentId) || ownsStudent(studentId));
+      allow create: if signedIn() && (
+        isAdmin()
+        || (ownsStudent(studentId) && nextQuestionsValidForStudent(studentId))
+      );
+      allow update: if signedIn() && (
+        isAdmin()
+        || (ownsStudent(studentId) && nextQuestionsValidForStudent(studentId))
+        || teachesStudent(studentId)
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /musigym_song_requests/{docId} {
+      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow create: if signedIn() && (isAdmin() || ownsStudent(request.resource.data.studentId) || teachesStudent(request.resource.data.studentId));
+      allow update: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow delete: if isAdmin();
+    }
+
+    match /musigym_teacher_calls/{docId} {
+      allow read: if signedIn() && (isAdmin() || isTeacher());
+      allow create: if signedIn();
+      allow update, delete: if signedIn() && (isAdmin() || isTeacher());
+    }
+
+
+    match /musigym_coach_logs/{docId} {
+      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow create: if signedIn() && (
+        isAdmin()
+        || teachesStudent(request.resource.data.studentId)
+        || ownsStudent(request.resource.data.studentId)
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    match /musigym_route_progress/{docId} {
+      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow create, update, delete: if signedIn() && (isAdmin() || teachesStudent(request.resource.data.studentId));
+    }
+
+    match /musigym_monthly_reports/{docId} {
+      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow create, update, delete: if signedIn() && (isAdmin() || teachesStudent(request.resource.data.studentId));
+    }
+  }
+}
