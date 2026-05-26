@@ -16,6 +16,8 @@ import {
   getStudent,
   listByStudent,
   createObjective,
+  updateObjective,
+  deleteObjective,
   saveDiagnostic,
   saveSession,
   saveSelfEvaluation,
@@ -26,6 +28,7 @@ import {
   getRouteProgressByComponent,
   saveSongRequest,
   updateSongRequest,
+  deleteSongRequest,
   getRouteForInstrument,
   listRouteProgress,
   setRouteItemProgress,
@@ -493,6 +496,17 @@ function renderCoachBox() {
   `;
 }
 
+function studentRoutineText(value = "") {
+  return safeText(value)
+    .replace(/Cierre y dudas para el profe/gi, "Cierre de practica")
+    .replace(/dudas para el profe/gi, "cierre de practica")
+    .replace(/para el profe/gi, "para tu practica")
+    .replace(/Nada de entrar a tocar como si la muÃ±eca fuera repuesto barato\./gi, "Toca lento al inicio y busca un sonido comodo y limpio.")
+    .replace(/Nada de entrar a tocar como si la muñeca fuera repuesto barato\./gi, "Toca lento al inicio y busca un sonido comodo y limpio.")
+    .replace(/antes de huir de la responsabilidad artÃ­stica\./gi, "y define un siguiente paso pequeno para tu proxima practica.")
+    .replace(/antes de huir de la responsabilidad artística\./gi, "y define un siguiente paso pequeno para tu proxima practica.");
+}
+
 function renderRoutineModule(mode) {
   const { routines, activeRoutine } = state.bundle;
   return `
@@ -503,9 +517,9 @@ function renderRoutineModule(mode) {
         <div class="routine-blocks">
           ${(activeRoutine.blocks || []).map((block) => `
             <article class="routine-block">
-              <strong>${escapeHtml(block.minutes || 5)} min · ${escapeHtml(block.name)}</strong>
+              <strong>${escapeHtml(block.minutes || 5)} min · ${escapeHtml(studentRoutineText(block.name))}</strong>
               <span>${escapeHtml(block.component || "Práctica")}</span>
-              <p>${escapeHtml(block.instructions || "")}</p>
+              <p>${escapeHtml(studentRoutineText(block.instructions || ""))}</p>
             </article>
           `).join("")}
         </div>
@@ -564,13 +578,27 @@ function renderObjectivesModule(mode) {
     <section class="card module">
       <div class="section-header"><h3>Objetivos</h3><span class="badge">${objectives.length}</span></div>
       <div class="stack-list">
-        ${objectives.map((o) => `<article class="list-item"><strong>${escapeHtml(o.title)}</strong><p>${escapeHtml(o.description || "")}</p><small>${escapeHtml(o.status || "active")} · ${escapeHtml(o.priority || "media")}</small></article>`).join("") || `<p class="empty">Sin objetivos todavía.</p>`}
+        ${objectives.map((o) => mode !== "estudiante" ? `
+          <article class="list-item editable-item" data-objective-id="${escapeHtml(o.id)}">
+            <input name="title" value="${escapeHtml(o.title)}" placeholder="Objetivo" />
+            <textarea name="description" placeholder="Descripcion breve">${escapeHtml(o.description || "")}</textarea>
+            <div class="edit-row">
+              <select name="component">${optionList(["Tecnica", "Teoria", "Repertorio", "Creatividad", "Habitos"], o.component || "Tecnica")}</select>
+              <select name="status">${optionList(["active", "in_progress", "achieved", "archived"], o.status || "active")}</select>
+              <select name="priority">${optionList(["baja", "media", "alta"], o.priority || "media")}</select>
+            </div>
+            <div class="inline-actions">
+              <button class="btn tiny" data-action="save-objective" data-id="${escapeHtml(o.id)}">Guardar</button>
+              <button class="btn tiny ghost" data-action="delete-objective" data-id="${escapeHtml(o.id)}">Eliminar</button>
+            </div>
+          </article>
+        ` : `<article class="list-item"><strong>${escapeHtml(o.title)}</strong><p>${escapeHtml(o.description || "")}</p><small>${escapeHtml(o.status || "active")} - ${escapeHtml(o.priority || "media")}</small></article>`).join("") || `<p class="empty">Sin objetivos todavia.</p>`}
       </div>
       ${mode !== "estudiante" ? `
         <form class="mini-form" data-form="objective">
           <input name="title" placeholder="Nuevo objetivo" required />
-          <textarea name="description" placeholder="Descripción breve"></textarea>
-          <select name="component"><option>Técnica</option><option>Teoría</option><option>Repertorio</option><option>Creatividad</option><option>Hábitos</option></select>
+          <textarea name="description" placeholder="Descripcion breve"></textarea>
+          <select name="component"><option>Tecnica</option><option>Teoria</option><option>Repertorio</option><option>Creatividad</option><option>Habitos</option></select>
           <button class="btn primary" type="submit">Agregar objetivo</button>
         </form>
       ` : ""}
@@ -584,20 +612,33 @@ function renderSongsModule(mode) {
     <section class="card module">
       <div class="section-header"><h3>Canciones deseadas</h3><span class="badge">${songs.length}</span></div>
       <div class="stack-list">
-        ${songs.map((s) => `
+        ${songs.map((s) => mode !== "estudiante" ? `
+          <article class="list-item editable-item" data-song-id="${escapeHtml(s.id)}">
+            <input name="songName" value="${escapeHtml(s.songName)}" placeholder="Cancion" />
+            <input name="artist" value="${escapeHtml(s.artist || "")}" placeholder="Artista" />
+            <textarea name="reason" placeholder="Motivo o interes">${escapeHtml(s.reason || "")}</textarea>
+            <div class="edit-row">
+              <select name="status">${optionList(["requested", "approved", "in_progress", "learned", "archived"], s.status || "requested")}</select>
+            </div>
+            <div class="inline-actions">
+              <button class="btn tiny" data-action="save-song" data-id="${escapeHtml(s.id)}">Guardar</button>
+              <button class="btn tiny ghost" data-action="advance-song" data-id="${escapeHtml(s.id)}" data-status="${escapeHtml(s.status || "requested")}">Avanzar estado</button>
+              <button class="btn tiny ghost" data-action="delete-song" data-id="${escapeHtml(s.id)}">Eliminar</button>
+            </div>
+          </article>
+        ` : `
           <article class="list-item">
             <strong>${escapeHtml(s.songName)}</strong>
-            <p>${escapeHtml(s.artist || "Artista no registrado")} · ${escapeHtml(s.reason || "")}</p>
+            <p>${escapeHtml(s.artist || "Artista no registrado")} - ${escapeHtml(s.reason || "")}</p>
             <small>${escapeHtml(s.status || "requested")}</small>
-            ${mode !== "estudiante" ? `<button class="btn tiny" data-action="advance-song" data-id="${escapeHtml(s.id)}" data-status="${escapeHtml(s.status || "requested")}">Avanzar estado</button>` : ""}
           </article>
-        `).join("") || `<p class="empty">Todavía no hay canciones soñadas. Grave, pero corregible.</p>`}
+        `).join("") || `<p class="empty">Todavia no hay canciones solicitadas.</p>`}
       </div>
       <form class="mini-form" data-form="song">
-        <input name="songName" placeholder="Canción" required />
+        <input name="songName" placeholder="Cancion" required />
         <input name="artist" placeholder="Artista" />
-        <textarea name="reason" placeholder="¿Por qué quieres aprenderla?"></textarea>
-        <button class="btn primary" type="submit">Agregar canción</button>
+        <textarea name="reason" placeholder="Por que quieres aprenderla"></textarea>
+        <button class="btn primary" type="submit">Agregar cancion</button>
       </form>
     </section>
   `;
@@ -931,6 +972,45 @@ async function handleClick(event) {
     }
 
     if (action === "select-student") await openStudent(btn.dataset.id);
+
+    if (action === "save-objective") {
+      const card = btn.closest("[data-objective-id]");
+      await updateObjective(btn.dataset.id, {
+        title: card.querySelector('[name="title"]')?.value || "",
+        description: card.querySelector('[name="description"]')?.value || "",
+        component: card.querySelector('[name="component"]')?.value || "",
+        status: card.querySelector('[name="status"]')?.value || "active",
+        priority: card.querySelector('[name="priority"]')?.value || "media",
+      });
+      setMessage("Objetivo actualizado.");
+      await openStudent(state.bundle.student.id);
+    }
+
+    if (action === "delete-objective") {
+      if (!confirm("¿Eliminar este objetivo?")) return;
+      await deleteObjective(btn.dataset.id);
+      setMessage("Objetivo eliminado.");
+      await openStudent(state.bundle.student.id);
+    }
+
+    if (action === "save-song") {
+      const card = btn.closest("[data-song-id]");
+      await updateSongRequest(btn.dataset.id, {
+        songName: card.querySelector('[name="songName"]')?.value || "",
+        artist: card.querySelector('[name="artist"]')?.value || "",
+        reason: card.querySelector('[name="reason"]')?.value || "",
+        status: card.querySelector('[name="status"]')?.value || "requested",
+      });
+      setMessage("Cancion actualizada.");
+      await openStudent(state.bundle.student.id);
+    }
+
+    if (action === "delete-song") {
+      if (!confirm("¿Eliminar esta canción?")) return;
+      await deleteSongRequest(btn.dataset.id);
+      setMessage("Cancion eliminada.");
+      await openStudent(state.bundle.student.id);
+    }
 
     if (action === "select-evaluation-session") {
       state.selectedEvaluationSessionId = btn.dataset.id;

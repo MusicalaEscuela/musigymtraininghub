@@ -275,6 +275,21 @@ export async function createObjective(data) {
   });
 }
 
+export async function updateObjective(id, patch) {
+  await setDoc(doc(db, C.objectives, id), {
+    title: safeText(patch.title),
+    description: safeText(patch.description),
+    component: safeText(patch.component),
+    status: safeText(patch.status) || "active",
+    priority: safeText(patch.priority) || "media",
+    updatedAt: nowStamp(),
+  }, { merge: true });
+}
+
+export async function deleteObjective(id) {
+  await deleteDoc(doc(db, C.objectives, id));
+}
+
 export async function saveDiagnostic(data) {
   return addDoc(collection(db, C.diagnostics), {
     studentId: data.studentId,
@@ -397,6 +412,10 @@ export async function updateSongRequest(id, patch) {
   await setDoc(doc(db, C.songRequests, id), { ...patch, updatedAt: nowStamp() }, { merge: true });
 }
 
+export async function deleteSongRequest(id) {
+  await deleteDoc(doc(db, C.songRequests, id));
+}
+
 export function getRouteForInstrument(instrument) {
   const key = normalizeText(instrument).includes("guitarra") ? "guitarra" : "general";
   return DEFAULT_ROUTES[key] || DEFAULT_ROUTES.general;
@@ -458,7 +477,7 @@ export function generateRoutine(student, objectives = [], progress = [], songs =
       minutes: 5,
       instructions:
         instrument === "Guitarra"
-          ? "Revisa postura, afinación, respiración y movilidad suave de manos. Nada de entrar a tocar como si la muñeca fuera repuesto barato."
+          ? "Revisa postura, afinacion, respiracion y movilidad suave de manos. Toca lento al inicio y busca un sonido comodo y limpio."
           : "Prepara cuerpo, atención y materiales. Define una intención concreta para la práctica.",
     },
     {
@@ -483,16 +502,16 @@ export function generateRoutine(student, objectives = [], progress = [], songs =
       component: "Repertorio",
       minutes: 15,
       instructions: currentSong
-        ? `Trabaja una sección pequeña de ${currentSong.songName}. Mejor 4 compases bien hechos que toda la canción en modo licuadora.`
+        ? `Trabaja una seccion pequena de ${currentSong.songName}. Repite por fragmentos cortos hasta que puedas tocar con seguridad y buen sonido.`
         : "Elige una pieza, ejercicio o creación breve. La meta es cerrar algo pequeño y claro.",
     },
     {
       id: uid("block"),
-      name: "Cierre y dudas para el profe",
+      name: "Cierre de practica",
       component: "Reflexión",
       minutes: 5,
       instructions:
-        "Escribe una duda concreta, marca tu sensación de la sesión y define el siguiente paso antes de huir de la responsabilidad artística.",
+        "Escribe una duda concreta, registra como te sentiste y define un siguiente paso pequeno para tu proxima practica.",
     },
   ];
 
