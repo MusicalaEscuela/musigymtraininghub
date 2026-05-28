@@ -35,6 +35,12 @@ import {
   saveGeneratedRoutine,
   setRoutineActive,
   updateRoutine,
+  listRoutineTemplates,
+  saveRoutineTemplate,
+  deleteRoutineTemplate,
+  defaultRoutineTemplate,
+  buildRoutineFromTemplate,
+  templateKeyForInstrument,
   loadGuitarLibrary,
   observeTeacherCalls,
   requestTeacherHelp,
@@ -68,6 +74,9 @@ const state = {
   currentViewMode: "admin",
   editingRoutineId: "",
   routineDraft: null,
+  routineTemplates: [],
+  editingTemplateKey: "",
+  templateDraft: null,
   selectedEvaluationSessionId: "",
   bundle: null,
   library: [],
@@ -118,6 +127,9 @@ async function loadBaseData() {
   state.students = students.filter((s) => !s.isPreviewProfile && s.source !== "admin_student_preview");
   state.users = users;
   state.library = library;
+  if (state.profile?.isAdmin) {
+    state.routineTemplates = await listRoutineTemplates().catch(() => []);
+  }
 
   if (state.profile?.isStudent) {
     let student = null;
@@ -267,6 +279,7 @@ function renderCurrentView() {
   if (!state.profile) return renderLoading("Preparando perfil...");
 
   if (state.profile.isAdmin && state.currentViewMode === "studentPreview" && state.selectedStudentId) return renderStudentPreview();
+  if (state.profile.isAdmin && state.currentViewMode === "teacher") return renderTeacher();
   if (state.profile.isAdmin) return renderAdmin();
   if (state.profile.isTeacher) return renderTeacher();
   return renderStudent();
@@ -301,12 +314,14 @@ function renderAdmin() {
           <p>Gestión de estudiantes, roles y procesos MusiGym.</p>
         </div>
         <button class="btn primary full" data-action="sync-students">Sincronizar estudiantes desde Sheets</button>
+        <button class="btn secondary full" data-action="enter-teacher-view">Ver vista docente</button>
         <button class="btn secondary full" data-action="enable-audio">${state.audioReady ? "Alarma activa" : "Activar alarma de llamados"}</button>
         ${renderMetrics()}
         ${renderCallsBox()}
       </aside>
       <section class="workspace">
         ${renderStudentList(true)}
+        ${renderRoutineTemplatesManager()}
         ${renderSelectedStudentWorkspace("admin")}
         ${renderRolesManager()}
       </section>
@@ -328,8 +343,15 @@ function renderStudentPreview() {
 }
 
 function renderTeacher() {
+  const adminPreview = state.profile?.isAdmin && state.currentViewMode === "teacher";
   return `
     <section class="dashboard-grid">
+      ${adminPreview ? `
+        <div class="preview-banner span-all">
+          <strong>Estás viendo la vista de docente</strong>
+          <button class="btn ghost" data-action="exit-teacher-view">Volver a Admin</button>
+        </div>
+      ` : ""}
       <aside class="side-panel">
         <div class="panel-title">
           <h2>Docente</h2>
@@ -771,6 +793,106 @@ function renderRoutineEditor(routine) {
   `;
 }
 
+// ---- Plantillas de rutina predeterminadas (admin) ----
+function renderRoutineTemplatesManager() {
+  if (state.editingTemplateKey) {
+    return `<section class="card module wide">${renderTemplateEditor()}</section>`;
+  }
+  const templates = state.routineTemplates || [];
+  const instrumentOptions = CATALOGS.instruments
+    .map((i) => `<option value="${escapeHtml(i)}">${escapeHtml(i)}</option>`)
+    .join("");
+  return `
+    <section class="card module wide">
+      <div class="section-header"><h3>Rutinas predeterminadas</h3><span class="badge">${templates.length} plantilla(s)</span></div>
+      <p class="list-hint">Estas plantillas se usan al generar rutinas automáticamente. Placeholders disponibles: <code>{{instrumento}}</code> <code>{{nivel}}</code> <code>{{ruta}}</code> <code>{{objetivo}}</code> <code>{{cancion}}</code>.</p>
+      <div class="template-list">
+        ${templates.length ? templates.map((t) => `
+          <article class="template-row">
+            <div>
+              <strong>${escapeHtml(t.instrument || t.id)}</strong>
+              <span>${escapeHtml(t.title || "")} · ${(t.blocks || []).length} bloque(s)</span>
+            </div>
+            <div class="template-row-actions">
+              <button class="btn tiny secondary" data-action="template-edit-start" data-key="${escapeHtml(t.id)}">Editar</button>
+              <button class="btn tiny ghost" data-action="template-delete" data-key="${escapeHtml(t.id)}">Eliminar</button>
+            </div>
+          </article>
+        `).join("") : `<p class="empty">Aún no hay plantillas guardadas. Mientras tanto, las rutinas usan la plantilla base automática. Crea una para personalizar.</p>`}
+      </div>
+      <form class="mini-form template-create" data-form="template-create">
+        <label>Crear o editar plantilla para
+          <select name="instrument">
+            <option value="default">General (para cualquier instrumento sin plantilla propia)</option>
+            ${instrumentOptions}
+          </select>
+        </label>
+        <button type="submit" class="btn secondary">Abrir editor</button>
+      </form>
+    </section>
+  `;
+}
+
+function renderTemplateEditor() {
+  const draft = state.templateDraft || { instrument: "default", title: "", blocks: [] };
+  const blocks = draft.blocks || [];
+  const totalMin = blocks.reduce((sum, b) => sum + Number(b.minutes || 0), 0);
+  return `
+    <div class="section-header"><h3>Editando plantilla: ${escapeHtml(draft.instrument)}</h3></div>
+    <form data-form="template-edit" class="routine-editor">
+      <label class="field">Título de la rutina (acepta placeholders)
+        <input name="title" value="${escapeHtml(draft.title || "")}" required />
+      </label>
+      <p class="list-hint">Total: ${totalMin} min · ${blocks.length} bloque(s) · Placeholders: <code>{{instrumento}}</code> <code>{{nivel}}</code> <code>{{ruta}}</code> <code>{{objetivo}}</code> <code>{{cancion}}</code></p>
+      <div class="routine-edit-blocks">
+        ${blocks.map((block, i) => `
+          <article class="template-block-edit routine-block-edit" data-block-index="${i}">
+            <div class="rbe-row">
+              <label class="rbe-min">Min
+                <input type="number" min="1" max="120" name="tmin_${i}" value="${escapeHtml(block.minutes || 5)}" />
+              </label>
+              <label class="rbe-grow">Nombre del bloque
+                <input name="tname_${i}" value="${escapeHtml(block.name || "")}" />
+              </label>
+              <button type="button" class="btn tiny ghost rbe-del" data-action="template-remove-block" data-index="${i}" title="Eliminar bloque">✕</button>
+            </div>
+            <label>Componente
+              <input name="tcomp_${i}" value="${escapeHtml(block.component || "")}" placeholder="Hábitos, Técnica, Repertorio..." />
+            </label>
+            <label>Instrucciones
+              <textarea name="tinstr_${i}" rows="2">${escapeHtml(block.instructions || "")}</textarea>
+            </label>
+          </article>
+        `).join("")}
+      </div>
+      <div class="routine-editor-actions">
+        <button type="button" class="btn secondary" data-action="template-add-block">+ Agregar bloque</button>
+        <div class="routine-editor-save">
+          <button type="button" class="btn ghost" data-action="template-cancel-edit">Cancelar</button>
+          <button type="submit" class="btn primary">Guardar plantilla</button>
+        </div>
+      </div>
+    </form>
+  `;
+}
+
+function captureTemplateDraft() {
+  const form = appRoot.querySelector('form[data-form="template-edit"]');
+  if (!form) return;
+  const title = form.querySelector('[name="title"]')?.value || "";
+  const blocks = [];
+  form.querySelectorAll(".template-block-edit").forEach((el) => {
+    const i = el.dataset.blockIndex;
+    blocks.push({
+      name: form.querySelector(`[name="tname_${i}"]`)?.value || "",
+      component: form.querySelector(`[name="tcomp_${i}"]`)?.value || "",
+      minutes: Number(form.querySelector(`[name="tmin_${i}"]`)?.value || 5),
+      instructions: form.querySelector(`[name="tinstr_${i}"]`)?.value || "",
+    });
+  });
+  state.templateDraft = { instrument: state.templateDraft?.instrument || "default", title, blocks };
+}
+
 // Lee el formulario de edición de rutina del DOM hacia state.routineDraft,
 // para no perder cambios al re-renderizar (agregar/quitar bloques).
 function captureRoutineDraft() {
@@ -1134,6 +1256,36 @@ async function handleSubmit(event) {
   const student = state.bundle?.student;
 
   try {
+    if (type === "template-create") {
+      const instrument = data.instrument || "default";
+      const isDefault = instrument === "default";
+      const key = isDefault ? "default" : templateKeyForInstrument(instrument);
+      const existing = (state.routineTemplates || []).find((t) => t.id === key);
+      const seed = existing || defaultRoutineTemplate(isDefault ? "" : instrument);
+      state.editingTemplateKey = key;
+      state.templateDraft = {
+        instrument: isDefault ? "default" : instrument,
+        title: seed.title || "",
+        blocks: (seed.blocks || []).map((b) => ({ ...b })),
+      };
+      render();
+      return;
+    }
+
+    if (type === "template-edit") {
+      captureTemplateDraft();
+      const draft = state.templateDraft;
+      const blocks = (draft.blocks || []).filter((b) => (b.name || "").trim());
+      if (!blocks.length) throw new Error("La plantilla necesita al menos un bloque con nombre.");
+      await saveRoutineTemplate(state.editingTemplateKey, { instrument: draft.instrument, title: draft.title, blocks });
+      state.routineTemplates = await listRoutineTemplates().catch(() => []);
+      state.editingTemplateKey = "";
+      state.templateDraft = null;
+      setMessage("Plantilla guardada. Las próximas rutinas de ese instrumento la usarán.");
+      render();
+      return;
+    }
+
     if (type === "routine-edit") {
       captureRoutineDraft();
       const blocks = (state.routineDraft || []).filter((b) => (b.name || "").trim());
@@ -1332,9 +1484,15 @@ async function handleClick(event) {
 
     if (action === "generate-routine") {
       const b = state.bundle;
-      const routine = generateRoutine(b.student, b.objectives, b.progress, b.songs);
+      // Buscar plantilla editable: por instrumento, luego "default".
+      const templates = state.routineTemplates || (await listRoutineTemplates().catch(() => []));
+      const keyForInstrument = templateKeyForInstrument(b.student.instrument);
+      const template = templates.find((t) => t.id === keyForInstrument) || templates.find((t) => t.id === "default");
+      const routine = template
+        ? buildRoutineFromTemplate(b.student, template, b.objectives, b.progress, b.songs)
+        : generateRoutine(b.student, b.objectives, b.progress, b.songs);
       await saveGeneratedRoutine(b.student, routine, state.profile.email);
-      setMessage("Rutina automática creada.");
+      setMessage(template ? "Rutina creada desde plantilla." : "Rutina automática creada.");
       await openStudent(b.student.id);
     }
 
@@ -1344,8 +1502,66 @@ async function handleClick(event) {
       await openStudent(state.bundle.student.id);
     }
 
+    if (action === "enter-teacher-view") {
+      state.currentViewMode = "teacher";
+      render();
+      return;
+    }
+
+    if (action === "exit-teacher-view") {
+      state.currentViewMode = "admin";
+      render();
+      return;
+    }
+
     if (action === "scroll-to-sessions") {
       document.getElementById("sessionsModule")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    if (action === "template-edit-start") {
+      const existing = (state.routineTemplates || []).find((t) => t.id === btn.dataset.key);
+      if (!existing) return;
+      state.editingTemplateKey = existing.id;
+      state.templateDraft = {
+        instrument: existing.instrument || "default",
+        title: existing.title || "",
+        blocks: (existing.blocks || []).map((b) => ({ ...b })),
+      };
+      render();
+      return;
+    }
+
+    if (action === "template-cancel-edit") {
+      state.editingTemplateKey = "";
+      state.templateDraft = null;
+      render();
+      return;
+    }
+
+    if (action === "template-add-block") {
+      captureTemplateDraft();
+      state.templateDraft.blocks = [
+        ...(state.templateDraft.blocks || []),
+        { name: "Nuevo bloque", component: "Práctica", minutes: 5, instructions: "" },
+      ];
+      render();
+      return;
+    }
+
+    if (action === "template-remove-block") {
+      captureTemplateDraft();
+      const idx = Number(btn.dataset.index);
+      state.templateDraft.blocks = (state.templateDraft.blocks || []).filter((_, i) => i !== idx);
+      render();
+      return;
+    }
+
+    if (action === "template-delete") {
+      await deleteRoutineTemplate(btn.dataset.key);
+      state.routineTemplates = await listRoutineTemplates().catch(() => []);
+      setMessage("Plantilla eliminada.");
+      render();
       return;
     }
 

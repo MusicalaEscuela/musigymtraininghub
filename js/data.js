@@ -508,6 +508,100 @@ export function generateRoutine(student, objectives = [], progress = [], songs =
   };
 }
 
+// ============================================================
+// Plantillas de rutina predeterminadas (editables por admin).
+// Se guardan en Firestore por clave de instrumento. Soportan
+// placeholders dinamicos: {{instrumento}} {{nivel}} {{ruta}}
+// {{objetivo}} {{cancion}}
+// ============================================================
+
+export function templateKeyForInstrument(instrument = "") {
+  const norm = normalizeText(instrument).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return norm || "default";
+}
+
+export function defaultRoutineTemplate(instrument = "") {
+  return {
+    instrument: instrument || "default",
+    title: "Rutina {{instrumento}} - {{nivel}}",
+    blocks: [
+      { name: "Llegada y calentamiento", component: "Hábitos", minutes: 5, instructions: "Revisa postura, afinación, respiración y movilidad suave. Toca lento al inicio y busca un sonido cómodo y limpio." },
+      { name: "Técnica: {{ruta}}", component: "Técnica", minutes: 12, instructions: "Trabaja {{ruta}} con repetición lenta, consciente y medible." },
+      { name: "Objetivo: {{objetivo}}", component: "Proceso", minutes: 15, instructions: "Avanza {{objetivo}} y escribe qué funcionó y qué se trabó." },
+      { name: "Repertorio: {{cancion}}", component: "Repertorio", minutes: 15, instructions: "Trabaja una sección pequeña de {{cancion}} por fragmentos cortos hasta tocarla con seguridad." },
+      { name: "Cierre de práctica", component: "Reflexión", minutes: 5, instructions: "Escribe una duda concreta, registra cómo te sentiste y define un siguiente paso pequeño." },
+    ],
+  };
+}
+
+export async function listRoutineTemplates() {
+  const snap = await getDocs(collection(db, C.routineTemplates));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function saveRoutineTemplate(key, template) {
+  const cleanKey = key || templateKeyForInstrument(template.instrument);
+  await setDoc(
+    doc(db, C.routineTemplates, cleanKey),
+    {
+      instrument: safeText(template.instrument || "default"),
+      title: safeText(template.title || "Rutina {{instrumento}}"),
+      blocks: (template.blocks || []).map((b) => ({
+        name: safeText(b.name),
+        component: safeText(b.component || "Práctica"),
+        minutes: Number(b.minutes || 5),
+        instructions: safeText(b.instructions || ""),
+      })),
+      updatedAt: nowStamp(),
+    },
+    { merge: true }
+  );
+  return cleanKey;
+}
+
+export async function deleteRoutineTemplate(key) {
+  await deleteDoc(doc(db, C.routineTemplates, key));
+}
+
+function applyPlaceholders(text, ctx) {
+  return String(text || "")
+    .replace(/\{\{\s*instrumento\s*\}\}/gi, ctx.instrument)
+    .replace(/\{\{\s*nivel\s*\}\}/gi, ctx.level)
+    .replace(/\{\{\s*ruta\s*\}\}/gi, ctx.route)
+    .replace(/\{\{\s*objetivo\s*\}\}/gi, ctx.objective)
+    .replace(/\{\{\s*cancion\s*\}\}/gi, ctx.song);
+}
+
+export function buildRoutineFromTemplate(student, template, objectives = [], progress = [], songs = []) {
+  const instrument = safeText(student.instrument || "tu instrumento");
+  const level = safeText(student.level || "Inicial");
+  const incompleteRoute = getRouteForInstrument(instrument).filter((item) => {
+    const found = progress.find((p) => p.routeItemId === item.id);
+    return !found || !isRouteDone(found.status);
+  });
+  const activeObjective = objectives.find((o) => (o.status || "active") === "active");
+  const currentSong = songs.find((s) => ["approved", "in_progress", "requested"].includes(s.status)) || null;
+  const ctx = {
+    instrument,
+    level,
+    route: incompleteRoute[0]?.title || "tu siguiente paso técnico",
+    objective: activeObjective?.title || "tu objetivo principal",
+    song: currentSong?.songName || "tu repertorio actual",
+  };
+  const blocks = (template.blocks || []).map((b) => ({
+    id: uid("block"),
+    name: applyPlaceholders(b.name, ctx),
+    component: safeText(b.component || "Práctica"),
+    minutes: Number(b.minutes || 5),
+    instructions: applyPlaceholders(b.instructions, ctx),
+  }));
+  return {
+    title: applyPlaceholders(template.title || `Rutina ${instrument} - ${level}`, ctx),
+    blocks,
+    generatedReason: "Rutina generada desde plantilla predeterminada editable de Musicala.",
+  };
+}
+
 export async function saveGeneratedRoutine(student, routine, createdBy = "") {
   const ref = await addDoc(collection(db, C.routines), {
     studentId: student.id,

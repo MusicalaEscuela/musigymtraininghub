@@ -157,5 +157,13 @@ service cloud.firestore {
       allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
       allow create, update, delete: if signedIn() && (isAdmin() || teachesStudent(request.resource.data.studentId));
     }
+
+    match /musigym_routine_templates/{templateId} {
+      // Plantillas de rutina predeterminadas: las puede leer cualquier
+      // usuario autenticado (se usan al generar rutinas), pero solo el
+      // admin las crea, edita o elimina.
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
   }
 }

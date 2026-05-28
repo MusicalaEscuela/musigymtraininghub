@@ -41,6 +41,7 @@ export const CONFIG = Object.freeze({
     monthlyReports: "musigym_monthly_reports",
     nextQuestions: "musigym_next_questions",
     coachLogs: "musigym_coach_logs",
+    routineTemplates: "musigym_routine_templates",
   },
 });
 
