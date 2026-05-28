@@ -407,20 +407,30 @@ function renderCallsBox() {
 
 function renderStudentList(showAllControls) {
   const q = state.studentSearch || "";
+  const searching = !!q.trim();
   const filtered = state.students.filter((student) => {
-    if (!q.trim()) return true;
-    const hay = [student.name, student.email, student.instrument, student.art, student.emphasis].join(" ");
-    return normalizeText(hay).includes(normalizeText(q));
+    if (searching) {
+      const hay = [student.name, student.email, student.instrument, student.art, student.emphasis].join(" ");
+      return normalizeText(hay).includes(normalizeText(q));
+    }
+    // Sin búsqueda en panel admin: solo estudiantes activos en MusiGym.
+    // Para activar a alguien nuevo, el admin lo busca por nombre.
+    if (showAllControls) return !!student.isMusiGym;
+    return true;
   });
+  const emptyMsg = showAllControls && !searching
+    ? `<p class="empty">Aún no hay estudiantes activos en MusiGym. Busca un estudiante por su nombre para activarlo.</p>`
+    : `<p class="empty">No hay estudiantes para mostrar.</p>`;
   return `
     <section class="card">
       <div class="section-header">
         <div>
           <p class="eyebrow">Estudiantes</p>
-          <h2>${showAllControls ? "Gestión MusiGym" : "Tus estudiantes activos"}</h2>
+          <h2>${showAllControls ? "Activos en MusiGym" : "Tus estudiantes activos"}</h2>
         </div>
-        <input id="studentSearch" class="search" placeholder="Buscar estudiante..." value="${escapeHtml(q)}" data-action="student-search" />
+        <input id="studentSearch" class="search" placeholder="${showAllControls ? "Buscar para activar un estudiante..." : "Buscar estudiante..."}" value="${escapeHtml(q)}" data-action="student-search" />
       </div>
+      ${showAllControls && !searching ? `<p class="list-hint">Mostrando solo activos. Escribe un nombre en el buscador para activar a alguien nuevo.</p>` : ""}
       <div class="student-grid">
         ${filtered.map((student) => `
           <button class="student-card ${state.selectedStudentId === student.id ? "active" : ""}" data-action="select-student" data-id="${escapeHtml(student.id)}">
@@ -428,7 +438,7 @@ function renderStudentList(showAllControls) {
             <span>${escapeHtml(student.instrument || student.art || "Sin arte")}</span>
             <small>${student.isMusiGym ? "Activo MusiGym" : "No activo"}</small>
           </button>
-        `).join("") || `<p class="empty">No hay estudiantes para mostrar.</p>`}
+        `).join("") || emptyMsg}
       </div>
     </section>
   `;

@@ -102,6 +102,7 @@ img { max-width: 100%; }
 .side-panel { position: sticky; top: 92px; padding: 1rem; }
 .panel-title h2 { margin: .25rem 0; font-size: 1.75rem; letter-spacing: -.04em; }
 .panel-title p, .empty { color: var(--muted); }
+.list-hint { margin: -.3rem 0 .7rem; font-size: .82rem; color: var(--muted); }
 .workspace, .student-workspace, .module-grid { display: grid; gap: 1rem; }
 .card { padding: 1rem; }
 .card.compact { padding: .9rem; }
