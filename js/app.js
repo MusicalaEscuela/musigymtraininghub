@@ -77,6 +77,8 @@ const state = {
   routineTemplates: [],
   editingTemplateKey: "",
   templateDraft: null,
+  followUpTimers: [],
+  timerStarted: false,
   selectedEvaluationSessionId: "",
   bundle: null,
   library: [],
@@ -239,6 +241,124 @@ function playAlarm(times = 3) {
   }
 }
 
+// ===== Temporizadores de seguimiento (rotación del docente) =====
+const TIMERS_KEY = "musigym_followup_timers";
+const TIMER_MAX_MIN = 15;
+
+function loadFollowUpTimers() {
+  try {
+    const raw = localStorage.getItem(TIMERS_KEY);
+    state.followUpTimers = raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    state.followUpTimers = [];
+  }
+}
+
+function saveFollowUpTimers() {
+  try {
+    localStorage.setItem(TIMERS_KEY, JSON.stringify(state.followUpTimers));
+  } catch (e) {
+    console.warn("No se pudieron guardar los temporizadores", e);
+  }
+}
+
+function addFollowUpTimer(studentName, minutes) {
+  const mins = Math.min(TIMER_MAX_MIN, Math.max(1, Number(minutes) || 10));
+  state.followUpTimers.push({
+    id: uid("timer"),
+    studentName: safeText(studentName) || "Estudiante",
+    durationMin: mins,
+    endsAt: Date.now() + mins * 60000,
+    status: "running",
+  });
+  saveFollowUpTimers();
+  ensureTimerInterval();
+}
+
+function resetFollowUpTimer(id) {
+  const t = state.followUpTimers.find((x) => x.id === id);
+  if (!t) return;
+  t.endsAt = Date.now() + t.durationMin * 60000;
+  t.status = "running";
+  saveFollowUpTimers();
+}
+
+function removeFollowUpTimer(id) {
+  state.followUpTimers = state.followUpTimers.filter((t) => t.id !== id);
+  saveFollowUpTimers();
+}
+
+function ensureTimerInterval() {
+  if (state.timerStarted) return;
+  state.timerStarted = true;
+  setInterval(tickFollowUpTimers, 1000);
+}
+
+function tickFollowUpTimers() {
+  if (!state.followUpTimers.length) return;
+  const now = Date.now();
+  let changed = false;
+  state.followUpTimers.forEach((t) => {
+    if (t.status === "running" && now >= t.endsAt) {
+      t.status = "done";
+      changed = true;
+      if (state.audioReady) playAlarm(4);
+    }
+  });
+  if (changed) saveFollowUpTimers();
+  const list = document.getElementById("timerList");
+  if (list) list.innerHTML = renderTimerList();
+}
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function renderFollowUpTimersPanel() {
+  const prefill = state.bundle?.student?.name || "";
+  return `
+    <div class="followup-panel">
+      <div class="followup-head">
+        <p class="eyebrow">Seguimiento</p>
+        <strong>Temporizadores de rotación</strong>
+      </div>
+      <p class="list-hint">Marca cada cuánto debes volver con un estudiante (máx ${TIMER_MAX_MIN} min). Suena y te recuerda pasar.</p>
+      <form class="followup-form" data-form="add-timer">
+        <input name="studentName" placeholder="Estudiante" value="${escapeHtml(prefill)}" />
+        <input type="number" name="minutes" min="1" max="${TIMER_MAX_MIN}" value="10" title="Minutos (máx ${TIMER_MAX_MIN})" />
+        <button type="submit" class="btn secondary">+ Temporizador</button>
+      </form>
+      <div id="timerList" class="timer-list">${renderTimerList()}</div>
+    </div>
+  `;
+}
+
+function renderTimerList() {
+  const timers = state.followUpTimers || [];
+  if (!timers.length) return `<p class="empty">Sin temporizadores activos.</p>`;
+  const now = Date.now();
+  return timers.map((t) => {
+    const remaining = Math.max(0, t.endsAt - now);
+    const done = t.status === "done" || remaining <= 0;
+    const mm = Math.floor(remaining / 60000);
+    const ss = Math.floor((remaining % 60000) / 1000);
+    return `
+      <article class="timer-card ${done ? "done" : ""}">
+        <div class="timer-info">
+          <strong>${escapeHtml(t.studentName)}</strong>
+          ${done
+            ? `<span class="timer-alert">⏰ Debes pasar con ${escapeHtml(t.studentName)}</span>`
+            : `<span class="timer-count">${mm}:${pad2(ss)}</span>`}
+        </div>
+        <div class="timer-actions">
+          <button class="btn tiny ${done ? "primary" : "secondary"}" data-action="timer-reset" data-id="${escapeHtml(t.id)}">${done ? "Ya pasé" : "Reiniciar"}</button>
+          <button class="btn tiny ghost" data-action="timer-remove" data-id="${escapeHtml(t.id)}" title="Quitar">✕</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
 function render() {
   appRoot.innerHTML = `
     ${renderShellHeader()}
@@ -358,6 +478,7 @@ function renderTeacher() {
           <p>Tu clase de hoy: seguimiento, bitácoras y apoyo.</p>
         </div>
         ${renderTodayPanel()}
+        ${renderFollowUpTimersPanel()}
         <button class="btn secondary full" data-action="enable-audio">${state.audioReady ? "Alarma activa" : "Activar alarma de llamados"}</button>
         ${renderCallsBox()}
       </aside>
@@ -1256,6 +1377,13 @@ async function handleSubmit(event) {
   const student = state.bundle?.student;
 
   try {
+    if (type === "add-timer") {
+      addFollowUpTimer(data.studentName, data.minutes);
+      setMessage(`Temporizador para ${safeText(data.studentName) || "estudiante"} iniciado.`);
+      render();
+      return;
+    }
+
     if (type === "template-create") {
       const instrument = data.instrument || "default";
       const isDefault = instrument === "default";
@@ -1502,6 +1630,18 @@ async function handleClick(event) {
       await openStudent(state.bundle.student.id);
     }
 
+    if (action === "timer-reset") {
+      resetFollowUpTimer(btn.dataset.id);
+      render();
+      return;
+    }
+
+    if (action === "timer-remove") {
+      removeFollowUpTimer(btn.dataset.id);
+      render();
+      return;
+    }
+
     if (action === "enter-teacher-view") {
       state.currentViewMode = "teacher";
       render();
@@ -1717,6 +1857,9 @@ appRoot.addEventListener("click", handleClick);
 appRoot.addEventListener("submit", handleSubmit);
 appRoot.addEventListener("change", handleChange);
 appRoot.addEventListener("input", handleInput);
+
+loadFollowUpTimers();
+if (state.followUpTimers.length) ensureTimerInterval();
 
 observeAuth(async (firebaseUser) => {
   state.booting = true;
