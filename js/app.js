@@ -63,6 +63,7 @@ const state = {
   users: [],
   selectedStudentId: "",
   studentSearch: "",
+  currentViewMode: "admin",
   selectedEvaluationSessionId: "",
   bundle: null,
   library: [],
@@ -261,6 +262,7 @@ function renderCurrentView() {
   if (!state.user) return renderLogin();
   if (!state.profile) return renderLoading("Preparando perfil...");
 
+  if (state.profile.isAdmin && state.currentViewMode === "studentPreview" && state.selectedStudentId) return renderStudentPreview();
   if (state.profile.isAdmin) return renderAdmin();
   if (state.profile.isTeacher) return renderTeacher();
   return renderStudent();
@@ -304,6 +306,19 @@ function renderAdmin() {
         ${renderSelectedStudentWorkspace("admin")}
         ${renderRolesManager()}
       </section>
+    </section>
+  `;
+}
+
+function renderStudentPreview() {
+  const name = state.bundle?.student?.name || "este estudiante";
+  return `
+    <section class="student-home">
+      <div class="preview-banner">
+        <strong>Estás viendo la app como la ve ${escapeHtml(name)}</strong>
+        <button class="btn ghost" data-action="exit-student-preview">Volver a Admin</button>
+      </div>
+      ${renderSelectedStudentWorkspace("estudiante")}
     </section>
   `;
 }
@@ -437,6 +452,7 @@ function renderSelectedStudentWorkspace(mode) {
         </div>
         <div class="banner-actions">
           ${mode !== "estudiante" ? `<button class="btn secondary" data-action="generate-routine">${escapeHtml(roleCopy.routineButton)}</button>` : ""}
+          ${mode === "admin" && student.isMusiGym ? `<button class="btn ghost" data-action="enter-student-preview">Ver como estudiante</button>` : ""}
           ${mode === "estudiante" ? `<button class="btn primary" data-action="call-teacher">Llamar al profe</button>` : ""}
         </div>
       </div>
@@ -1094,6 +1110,20 @@ async function handleClick(event) {
       await syncStudentsFromScript();
       await loadBaseData();
       setMessage("Estudiantes sincronizados desde Sheets.");
+      render();
+    }
+
+    if (action === "enter-student-preview") {
+      if (!state.selectedStudentId) {
+        setMessage("Selecciona primero un estudiante activo.");
+        return;
+      }
+      state.currentViewMode = "studentPreview";
+      render();
+    }
+
+    if (action === "exit-student-preview") {
+      state.currentViewMode = "admin";
       render();
     }
 

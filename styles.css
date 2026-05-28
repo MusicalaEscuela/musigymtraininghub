@@ -185,6 +185,18 @@ input:focus, select:focus, textarea:focus { border-color: rgba(124,58,237,.52); 
 .chip { border: 1px solid var(--line); color: var(--primary); background: rgba(255,255,255,.75); border-radius: 999px; padding: .45rem .7rem; font-weight: 800; }
 
 .calls-box { margin-top: 1rem; }
+.preview-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .75rem;
+  margin-bottom: 1rem;
+  padding: .85rem 1rem;
+  border: 1px solid rgba(245, 158, 11, .34);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 251, 235, .92);
+  color: #78350f;
+}
 .helper { color: var(--muted); margin: -.25rem 0 .8rem; }
 .question-item textarea { min-height: 74px; }
 .history-details { margin-top: .75rem; color: var(--muted); }
