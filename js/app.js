@@ -11,7 +11,6 @@ import {
   listUsers,
   saveUserRole,
   updateStudent,
-  ensureAdminPreviewStudent,
   findStudentByEmail,
   getStudent,
   listByStudent,
@@ -64,8 +63,6 @@ const state = {
   users: [],
   selectedStudentId: "",
   studentSearch: "",
-  currentViewMode: "admin",
-  previewStudentId: "",
   selectedEvaluationSessionId: "",
   bundle: null,
   library: [],
@@ -111,7 +108,9 @@ async function loadBaseData() {
     state.profile?.isAdmin ? listUsers().catch(() => []) : Promise.resolve([]),
     state.library.length ? Promise.resolve(state.library) : loadGuitarLibrary().catch(() => []),
   ]);
-  state.students = students;
+  // Excluir los perfiles "Vista de prueba Admin" creados por la version
+  // anterior; esa funcion ya no existe.
+  state.students = students.filter((s) => !s.isPreviewProfile && s.source !== "admin_student_preview");
   state.users = users;
   state.library = library;
 
@@ -262,7 +261,6 @@ function renderCurrentView() {
   if (!state.user) return renderLogin();
   if (!state.profile) return renderLoading("Preparando perfil...");
 
-  if (state.profile.isAdmin && state.currentViewMode === "studentPreview") return renderStudentPreview();
   if (state.profile.isAdmin) return renderAdmin();
   if (state.profile.isTeacher) return renderTeacher();
   return renderStudent();
@@ -297,7 +295,6 @@ function renderAdmin() {
           <p>Gestión de estudiantes, roles y procesos MusiGym.</p>
         </div>
         <button class="btn primary full" data-action="sync-students">Sincronizar estudiantes desde Sheets</button>
-        ${renderAdminStudentPreviewControls()}
         <button class="btn secondary full" data-action="enable-audio">${state.audioReady ? "Alarma activa" : "Activar alarma de llamados"}</button>
         ${renderMetrics()}
         ${renderCallsBox()}
@@ -307,36 +304,6 @@ function renderAdmin() {
         ${renderSelectedStudentWorkspace("admin")}
         ${renderRolesManager()}
       </section>
-    </section>
-  `;
-}
-
-function renderAdminStudentPreviewControls() {
-  const options = state.students
-    .filter((student) => student.isMusiGym)
-    .map((student) => `<option value="${escapeHtml(student.id)}" ${state.previewStudentId === student.id ? "selected" : ""}>${escapeHtml(student.name)}</option>`)
-    .join("");
-  return `
-    <div class="preview-switcher">
-      <label>Previsualizar estudiante
-        <select data-action="preview-student-select">
-          <option value="">Usar perfil espejo Admin</option>
-          ${options}
-        </select>
-      </label>
-      <button class="btn secondary full" data-action="enter-student-preview">Ver como estudiante</button>
-    </div>
-  `;
-}
-
-function renderStudentPreview() {
-  return `
-    <section class="student-home">
-      <div class="preview-banner">
-        <strong>Vista estudiante - modo admin</strong>
-        <button class="btn ghost" data-action="exit-student-preview">Volver a Admin</button>
-      </div>
-      ${renderSelectedStudentWorkspace("estudiante")}
     </section>
   `;
 }
@@ -1130,19 +1097,6 @@ async function handleClick(event) {
       render();
     }
 
-    if (action === "enter-student-preview") {
-      const id = state.previewStudentId || await ensureAdminPreviewStudent(state.profile);
-      state.previewStudentId = id;
-      state.currentViewMode = "studentPreview";
-      await openStudent(id);
-    }
-
-    if (action === "exit-student-preview") {
-      state.currentViewMode = "admin";
-      await loadBaseData();
-      render();
-    }
-
     if (action === "select-student") await openStudent(btn.dataset.id);
 
     if (action === "save-objective") {
@@ -1303,11 +1257,6 @@ async function handleChange(event) {
   const el = event.target.closest("[data-action]");
   if (!el) return;
   const action = el.dataset.action;
-
-  if (action === "preview-student-select") {
-    state.previewStudentId = el.value;
-    return;
-  }
 
   if (action === "route-status") {
     const item = getRouteForInstrument(state.bundle.student.instrument).find((routeItem) => routeItem.id === el.dataset.id);

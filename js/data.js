@@ -173,34 +173,6 @@ export async function updateStudent(id, patch) {
   );
 }
 
-export async function ensureAdminPreviewStudent(profile) {
-  const id = `admin_preview_${profile.uid || emailKey(profile.email)}`;
-  const ref = doc(db, C.students, id);
-  const snap = await getDoc(ref);
-  const previous = snap.exists() ? snap.data() : {};
-  await setDoc(
-    ref,
-    {
-      nombre: "Vista de prueba Admin",
-      name: "Vista de prueba Admin",
-      email: profile.email || "",
-      isPreviewProfile: true,
-      isMusiGym: true,
-      ownerAdminUid: profile.uid || "",
-      art: previous.art || "Música",
-      instrument: previous.instrument || "Guitarra",
-      emphasis: previous.emphasis || "Guitarra inicial",
-      level: previous.level || "Inicial",
-      teacherEmail: previous.teacherEmail || "",
-      source: "admin_student_preview",
-      updatedAt: nowStamp(),
-      createdAt: previous.createdAt || nowStamp(),
-    },
-    { merge: true }
-  );
-  return id;
-}
-
 export async function findStudentByEmail(email) {
   const clean = safeText(email).toLowerCase();
   if (!clean) return null;
