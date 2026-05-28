@@ -134,6 +134,28 @@ async function loadBaseData() {
   if (state.selectedStudentId) await openStudent(state.selectedStudentId, false);
 }
 
+// Sincroniza estudiantes desde Sheets automaticamente al abrir la app.
+// Solo admins (son quienes pueden escribir en Firestore). Corre en segundo
+// plano para no bloquear la carga, y solo una vez por sesion del navegador.
+async function autoSyncStudents() {
+  if (!state.profile?.isAdmin) return;
+  if (sessionStorage.getItem("musigym_autosynced") === "1") return;
+  sessionStorage.setItem("musigym_autosynced", "1");
+  try {
+    setMessage("Actualizando estudiantes desde Sheets...");
+    render();
+    await syncStudentsFromScript();
+    await loadBaseData();
+    setMessage("Estudiantes actualizados desde Sheets.");
+    render();
+  } catch (error) {
+    console.warn("Auto-sync de estudiantes fallo", error);
+    sessionStorage.removeItem("musigym_autosynced");
+    setMessage("No se pudo sincronizar automaticamente. Puedes usar el boton de sincronizar.");
+    render();
+  }
+}
+
 async function openStudent(studentId, shouldRender = true) {
   state.selectedStudentId = studentId;
   state.bundle = null;
@@ -1340,6 +1362,9 @@ observeAuth(async (firebaseUser) => {
     state.booting = false;
     render();
   }
+
+  // Sincronizacion automatica en segundo plano (admins, una vez por sesion).
+  autoSyncStudents();
 });
 
 render();
