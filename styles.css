@@ -152,6 +152,49 @@ input:focus, select:focus, textarea:focus { border-color: rgba(124,58,237,.52); 
 .form-grid label, .mini-form label { display: grid; gap: .3rem; color: var(--muted); font-size: .9rem; font-weight: 700; }
 .field-help { color: var(--muted); font-size: .78rem; font-weight: 600; line-height: 1.35; }
 .span-2 { grid-column: span 2; }
+
+/* Editor de rutinas */
+.header-actions { display: flex; align-items: center; gap: .5rem; }
+.routine-editor { display: grid; gap: .8rem; }
+.routine-editor .field, .routine-block-edit label { display: grid; gap: .3rem; color: var(--muted); font-size: .85rem; font-weight: 700; }
+.routine-edit-blocks { display: grid; gap: .7rem; }
+.routine-block-edit {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: rgba(255,255,255,.6);
+  padding: .8rem;
+  display: grid;
+  gap: .55rem;
+}
+.rbe-row { display: flex; gap: .55rem; align-items: flex-end; }
+.rbe-min { width: 78px; flex-shrink: 0; }
+.rbe-grow { flex: 1; }
+.rbe-del { align-self: flex-end; height: 42px; flex-shrink: 0; }
+.routine-editor-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .6rem; align-items: center; }
+.routine-editor-save { display: flex; gap: .5rem; }
+
+/* Panel de clase de hoy (docente) */
+.today-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(124,58,237,.1), rgba(217,70,239,.07));
+  padding: .9rem;
+  display: grid;
+  gap: .7rem;
+  margin: .9rem 0;
+}
+.today-head { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
+.today-head strong { font-size: .95rem; }
+.today-counters { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.today-counters > div { border-radius: var(--radius-md); background: rgba(255,255,255,.7); border: 1px solid var(--line); padding: .55rem .7rem; }
+.today-counters strong { display: block; font-size: 1.5rem; letter-spacing: -.05em; }
+.today-counters span { color: var(--muted); font-size: .76rem; }
+.today-counters .today-alert { background: rgba(245,158,11,.16); border-color: rgba(245,158,11,.4); }
+.today-student { display: grid; gap: .35rem; border-top: 1px solid var(--line); padding-top: .7rem; }
+.today-student > strong { font-size: 1rem; }
+.today-student > span { color: var(--muted); font-size: .85rem; }
+.today-facts { margin: .25rem 0 .5rem; padding-left: 1rem; display: grid; gap: .25rem; font-size: .85rem; color: var(--text); }
+.today-facts b { color: var(--primary); }
 .mini-form { display: grid; gap: .6rem; margin-top: .8rem; }
 
 .module-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -34,6 +34,7 @@ import {
   generateRoutine,
   saveGeneratedRoutine,
   setRoutineActive,
+  updateRoutine,
   loadGuitarLibrary,
   observeTeacherCalls,
   requestTeacherHelp,
@@ -50,6 +51,7 @@ import {
   formatDateTime,
   monthKey,
   unique,
+  uid,
 } from "./utils.js";
 
 const C = CONFIG.collections;
@@ -64,6 +66,8 @@ const state = {
   selectedStudentId: "",
   studentSearch: "",
   currentViewMode: "admin",
+  editingRoutineId: "",
+  routineDraft: null,
   selectedEvaluationSessionId: "",
   bundle: null,
   library: [],
@@ -329,10 +333,10 @@ function renderTeacher() {
       <aside class="side-panel">
         <div class="panel-title">
           <h2>Docente</h2>
-          <p>Sesiones, apoyo, bitácoras y seguimiento.</p>
+          <p>Tu clase de hoy: seguimiento, bitácoras y apoyo.</p>
         </div>
+        ${renderTodayPanel()}
         <button class="btn secondary full" data-action="enable-audio">${state.audioReady ? "Alarma activa" : "Activar alarma de llamados"}</button>
-        ${renderMetrics()}
         ${renderCallsBox()}
       </aside>
       <section class="workspace">
@@ -340,6 +344,45 @@ function renderTeacher() {
         ${renderSelectedStudentWorkspace("docente")}
       </section>
     </section>
+  `;
+}
+
+function renderTodayPanel() {
+  const today = formatDate(new Date());
+  const myStudents = state.students.length; // el docente ya recibe solo MusiGym
+  const pendingCalls = (state.teacherCalls || []).length;
+  const b = state.bundle;
+  let snapshot = `<p class="empty">Selecciona un estudiante para ver su estado de hoy.</p>`;
+  if (b?.student) {
+    const lastSession = b.sessions?.[0];
+    const lastEval = b.evaluations?.[0];
+    const nextPractice = lastSession?.nextPractice || lastSession?.practiceRecommendations || "";
+    const mood = lastEval?.mood || lastEval?.feeling || "";
+    snapshot = `
+      <div class="today-student">
+        <strong>${escapeHtml(b.student.name)}</strong>
+        <span>${escapeHtml(b.student.instrument || b.student.art || "Sin arte")} · ${escapeHtml(b.student.level || "Sin nivel")}</span>
+        <ul class="today-facts">
+          <li><b>Última sesión:</b> ${lastSession ? escapeHtml(formatDate(lastSession.date || lastSession.createdAt)) : "Sin registro"}</li>
+          ${nextPractice ? `<li><b>Próxima práctica:</b> ${escapeHtml(nextPractice)}</li>` : ""}
+          ${mood ? `<li><b>Última sensación:</b> ${escapeHtml(mood)}</li>` : ""}
+        </ul>
+        <button class="btn tiny secondary" data-action="scroll-to-sessions">Registrar sesión de hoy</button>
+      </div>
+    `;
+  }
+  return `
+    <div class="today-panel">
+      <div class="today-head">
+        <p class="eyebrow">Clase de hoy</p>
+        <strong>${escapeHtml(today)}</strong>
+      </div>
+      <div class="today-counters">
+        <div><strong>${myStudents}</strong><span>Tus estudiantes</span></div>
+        <div class="${pendingCalls ? "today-alert" : ""}"><strong>${pendingCalls}</strong><span>Llamados</span></div>
+      </div>
+      ${snapshot}
+    </div>
   `;
 }
 
@@ -647,9 +690,27 @@ function studentRoutineText(value = "") {
 
 function renderRoutineModule(mode) {
   const { routines, activeRoutine } = state.bundle;
+  const canEdit = mode !== "estudiante";
+  const isEditing = canEdit && activeRoutine && state.editingRoutineId === activeRoutine.id;
+
+  if (isEditing) {
+    return `
+      <section class="card module wide">
+        <div class="section-header"><h3>Editando rutina</h3></div>
+        ${renderRoutineEditor(activeRoutine)}
+      </section>
+    `;
+  }
+
   return `
     <section class="card module wide">
-      <div class="section-header"><h3>Rutina activa</h3><span class="badge">${routines.length} rutina(s)</span></div>
+      <div class="section-header">
+        <h3>Rutina activa</h3>
+        <div class="header-actions">
+          <span class="badge">${routines.length} rutina(s)</span>
+          ${canEdit && activeRoutine ? `<button class="btn tiny secondary" data-action="routine-edit-start" data-id="${escapeHtml(activeRoutine.id)}">Editar rutina</button>` : ""}
+        </div>
+      </div>
       ${activeRoutine ? `
         <h4>${escapeHtml(activeRoutine.title)}</h4>
         <div class="routine-blocks">
@@ -667,6 +728,68 @@ function renderRoutineModule(mode) {
       ` : ""}
     </section>
   `;
+}
+
+function renderRoutineEditor(routine) {
+  const blocks = state.routineDraft || routine.blocks || [];
+  const totalMin = blocks.reduce((sum, b) => sum + Number(b.minutes || 0), 0);
+  return `
+    <form data-form="routine-edit" class="routine-editor">
+      <label class="field">Título de la rutina
+        <input name="title" value="${escapeHtml(routine.title || "")}" required />
+      </label>
+      <p class="list-hint">Total: ${totalMin} min · ${blocks.length} bloque(s)</p>
+      <div class="routine-edit-blocks">
+        ${blocks.map((block, i) => `
+          <article class="routine-block-edit" data-block-index="${i}">
+            <div class="rbe-row">
+              <label class="rbe-min">Min
+                <input type="number" min="1" max="120" name="minutes_${i}" value="${escapeHtml(block.minutes || 5)}" />
+              </label>
+              <label class="rbe-grow">Nombre del bloque
+                <input name="name_${i}" value="${escapeHtml(block.name || "")}" />
+              </label>
+              <button type="button" class="btn tiny ghost rbe-del" data-action="routine-remove-block" data-index="${i}" title="Eliminar bloque">✕</button>
+            </div>
+            <label>Componente
+              <input name="component_${i}" value="${escapeHtml(block.component || "")}" placeholder="Hábitos, Técnica, Repertorio..." />
+            </label>
+            <label>Instrucciones
+              <textarea name="instructions_${i}" rows="2">${escapeHtml(block.instructions || "")}</textarea>
+            </label>
+          </article>
+        `).join("")}
+      </div>
+      <div class="routine-editor-actions">
+        <button type="button" class="btn secondary" data-action="routine-add-block">+ Agregar bloque</button>
+        <div class="routine-editor-save">
+          <button type="button" class="btn ghost" data-action="routine-cancel-edit">Cancelar</button>
+          <button type="submit" class="btn primary">Guardar rutina</button>
+        </div>
+      </div>
+    </form>
+  `;
+}
+
+// Lee el formulario de edición de rutina del DOM hacia state.routineDraft,
+// para no perder cambios al re-renderizar (agregar/quitar bloques).
+function captureRoutineDraft() {
+  const form = appRoot.querySelector('form[data-form="routine-edit"]');
+  if (!form) return;
+  const blockEls = form.querySelectorAll(".routine-block-edit");
+  const blocks = [];
+  blockEls.forEach((el) => {
+    const i = el.dataset.blockIndex;
+    const prev = state.routineDraft?.[Number(i)] || {};
+    blocks.push({
+      id: prev.id || uid("block"),
+      minutes: Number(form.querySelector(`[name="minutes_${i}"]`)?.value || 5),
+      name: form.querySelector(`[name="name_${i}"]`)?.value || "",
+      component: form.querySelector(`[name="component_${i}"]`)?.value || "",
+      instructions: form.querySelector(`[name="instructions_${i}"]`)?.value || "",
+    });
+  });
+  state.routineDraft = blocks;
 }
 
 function renderRouteModule(mode) {
@@ -825,7 +948,7 @@ function renderSessionsModule(mode) {
   const { sessions, objectives } = state.bundle;
   const route = getRouteForInstrument(state.bundle.student.instrument);
   return `
-    <section class="card module wide">
+    <section class="card module wide" id="sessionsModule">
       <div class="section-header"><h3>Bitacoras de sesiones</h3><span class="badge">${sessions.length}</span></div>
       <div class="timeline">
         ${sessions.slice(0, 8).map((s) => {
@@ -1011,6 +1134,19 @@ async function handleSubmit(event) {
   const student = state.bundle?.student;
 
   try {
+    if (type === "routine-edit") {
+      captureRoutineDraft();
+      const blocks = (state.routineDraft || []).filter((b) => (b.name || "").trim());
+      if (!blocks.length) throw new Error("La rutina necesita al menos un bloque con nombre.");
+      const title = data.title || state.bundle.activeRoutine?.title || "Rutina";
+      await updateRoutine(state.editingRoutineId, { title, blocks });
+      state.editingRoutineId = "";
+      state.routineDraft = null;
+      setMessage("Rutina actualizada.");
+      await openStudent(state.bundle.student.id);
+      return;
+    }
+
     if (type === "student-config") {
       await updateStudent(data.studentId, {
         isMusiGym: data.isMusiGym === "true",
@@ -1206,6 +1342,45 @@ async function handleClick(event) {
       await setRoutineActive(state.bundle.student.id, btn.dataset.id);
       setMessage("Rutina activa actualizada.");
       await openStudent(state.bundle.student.id);
+    }
+
+    if (action === "scroll-to-sessions") {
+      document.getElementById("sessionsModule")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    if (action === "routine-edit-start") {
+      const routine = state.bundle.activeRoutine;
+      if (!routine) return;
+      state.editingRoutineId = routine.id;
+      state.routineDraft = (routine.blocks || []).map((b) => ({ ...b }));
+      render();
+      return;
+    }
+
+    if (action === "routine-cancel-edit") {
+      state.editingRoutineId = "";
+      state.routineDraft = null;
+      render();
+      return;
+    }
+
+    if (action === "routine-add-block") {
+      captureRoutineDraft();
+      state.routineDraft = [
+        ...(state.routineDraft || []),
+        { id: uid("block"), minutes: 5, name: "Nuevo bloque", component: "Práctica", instructions: "" },
+      ];
+      render();
+      return;
+    }
+
+    if (action === "routine-remove-block") {
+      captureRoutineDraft();
+      const idx = Number(btn.dataset.index);
+      state.routineDraft = (state.routineDraft || []).filter((_, i) => i !== idx);
+      render();
+      return;
     }
 
     if (action === "toggle-coach") {

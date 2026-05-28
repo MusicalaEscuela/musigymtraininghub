@@ -523,6 +523,14 @@ export async function saveGeneratedRoutine(student, routine, createdBy = "") {
   return ref;
 }
 
+export async function updateRoutine(routineId, data = {}) {
+  await setDoc(
+    doc(db, C.routines, routineId),
+    { ...data, updatedAt: nowStamp() },
+    { merge: true }
+  );
+}
+
 export async function setRoutineActive(studentId, routineId) {
   const routines = await listByStudent(C.routines, studentId);
   const batch = writeBatch(db);
