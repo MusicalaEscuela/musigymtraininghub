@@ -128,7 +128,10 @@ async function loadBaseData() {
   }
 
   if (!state.profile?.isStudent && !state.selectedStudentId && students.length) {
-    state.selectedStudentId = students[0].id;
+    // Abrir por defecto la ficha del primer estudiante ACTIVO en MusiGym;
+    // si ninguno esta activo, caer al primero de la lista.
+    const firstActive = students.find((s) => s.isMusiGym);
+    state.selectedStudentId = (firstActive || students[0]).id;
   }
 
   if (state.selectedStudentId) await openStudent(state.selectedStudentId, false);
