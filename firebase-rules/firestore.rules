@@ -55,8 +55,9 @@ service cloud.firestore {
 
     function teachesStudent(studentId) {
       // Cualquier docente (o admin) puede atender cualquier proceso: ya no se asigna docente por estudiante.
-      return isTeacher()
-        && exists(/databases/$(database)/documents/musigym_students/$(studentId));
+      // No se consulta el documento del estudiante (sin get()/exists() por documento) para que las
+      // consultas de lista (p. ej. where("isMusiGym","==",true)) no sean rechazadas por Firestore.
+      return isTeacher();
     }
 
     function nextQuestionsValidForStudent(studentId) {
