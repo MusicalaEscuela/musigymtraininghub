@@ -54,13 +54,9 @@ service cloud.firestore {
     }
 
     function teachesStudent(studentId) {
+      // Cualquier docente (o admin) puede atender cualquier proceso: ya no se asigna docente por estudiante.
       return isTeacher()
-        && exists(/databases/$(database)/documents/musigym_students/$(studentId))
-        && (
-          isAdmin()
-          || get(/databases/$(database)/documents/musigym_students/$(studentId)).data.teacherEmail == email()
-          || get(/databases/$(database)/documents/musigym_students/$(studentId)).data.teacherEmail == ""
-        );
+        && exists(/databases/$(database)/documents/musigym_students/$(studentId));
     }
 
     function nextQuestionsValidForStudent(studentId) {

@@ -662,10 +662,6 @@ function renderSelectedStudentWorkspace(mode) {
 }
 
 function renderStudentConfig(student) {
-  const teacherUsers = state.users.filter((user) => (user.role || "") === "docente" || user.isMusiGymTeacher === true);
-  const teacherOptions = teacherUsers
-    .map((teacher) => `<option value="${escapeHtml(teacher.email || teacher.id)}" ${safeText(student.teacherEmail).toLowerCase() === safeText(teacher.email || teacher.id).toLowerCase() ? "selected" : ""}>${escapeHtml(teacher.name || teacher.email)}</option>`)
-    .join("");
   return `
     <section class="card compact">
       <div class="section-header"><h3>Configuracion MusiGym</h3><span class="badge ${student.isMusiGym ? "ok" : "warn"}">${student.isMusiGym ? "Activo" : "Inactivo"}</span></div>
@@ -676,13 +672,6 @@ function renderStudentConfig(student) {
         <label>Instrumento/area <select name="instrument">${optionList(CATALOGS.instruments, student.instrument)}</select></label>
         <label>Enfasis <select name="emphasis">${optionList(CATALOGS.emphases, student.emphasis)}</select></label>
         <label>Nivel <select name="level">${optionList(CATALOGS.levels, student.level)}</select></label>
-        <label>Docente asignado
-          <select name="teacherEmail">
-            <option value="">Sin docente asignado</option>
-            ${teacherOptions}
-          </select>
-          <small class="field-help">Elige un docente registrado en Docentes MusiGym.</small>
-        </label>
         <button class="btn primary" type="submit">Guardar configuracion</button>
       </form>
     </section>
@@ -1434,8 +1423,6 @@ async function handleSubmit(event) {
         instrument: data.instrument,
         emphasis: data.emphasis,
         level: data.level,
-        teacherEmail: data.teacherEmail.toLowerCase(),
-        teacherName: state.users.find((user) => safeText(user.email).toLowerCase() === data.teacherEmail.toLowerCase())?.name || "",
       });
       setMessage("Configuración guardada.");
       await refreshSelected();
