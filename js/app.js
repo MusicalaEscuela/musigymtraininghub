@@ -80,6 +80,7 @@ const state = {
   followUpTimers: [],
   timerStarted: false,
   selectedEvaluationSessionId: "",
+  activeTab: "hoy",
   bundle: null,
   library: [],
   libraryFilter: { q: "", category: "", level: "" },
@@ -180,6 +181,7 @@ async function autoSyncStudents() {
 async function openStudent(studentId, shouldRender = true) {
   state.selectedStudentId = studentId;
   state.bundle = null;
+  state.activeTab = "hoy";
   if (shouldRender) render();
 
   const student = await getStudent(studentId);
@@ -644,20 +646,51 @@ function renderSelectedStudentWorkspace(mode) {
       </div>
       ${mode === "admin" ? renderStudentConfig(student) : ""}
       ${roleCopy.showCoach ? renderCoachBox() : ""}
-      <div class="module-grid">
-        ${renderRoutineModule(mode)}
-        ${renderRouteModule(mode)}
-        ${renderObjectivesModule(mode)}
-        ${renderSongsModule(mode)}
-        ${renderNextQuestionsModule(mode)}
-        ${renderSessionsModule(mode)}
-        ${renderDiagnosticsModule(mode)}
-        ${renderSelfEvaluationModule(mode)}
-        ${mode !== "estudiante" ? renderPrepareNextSessionModule(mode) : ""}
-        ${renderMonthlyReportModule(mode)}
-        ${renderLibraryModule(mode)}
-      </div>
+      ${renderWorkspaceTabs(mode)}
     </section>
+  `;
+}
+
+function renderWorkspaceTabs(mode) {
+  const tabs = [
+    {
+      key: "hoy", label: "Hoy", icon: "🎯",
+      modules: () => [
+        renderRoutineModule(mode),
+        mode !== "estudiante" ? renderPrepareNextSessionModule(mode) : "",
+        renderNextQuestionsModule(mode),
+      ],
+    },
+    {
+      key: "plan", label: "Plan", icon: "🗺️",
+      modules: () => [
+        renderDiagnosticsModule(mode),
+        renderObjectivesModule(mode),
+        renderSongsModule(mode),
+        renderRouteModule(mode),
+      ],
+    },
+    {
+      key: "seguimiento", label: "Seguimiento", icon: "📈",
+      modules: () => [
+        renderSessionsModule(mode),
+        renderSelfEvaluationModule(mode),
+        renderMonthlyReportModule(mode),
+      ],
+    },
+    {
+      key: "recursos", label: "Recursos", icon: "📚",
+      modules: () => [renderLibraryModule(mode)],
+    },
+  ];
+  const active = tabs.some((t) => t.key === state.activeTab) ? state.activeTab : "hoy";
+  const tabBar = tabs
+    .map((t) => `<button class="ws-tab ${t.key === active ? "active" : ""}" data-action="switch-tab" data-tab="${t.key}" role="tab" aria-selected="${t.key === active}"><span class="ws-tab-ico" aria-hidden="true">${t.icon}</span>${escapeHtml(t.label)}</button>`)
+    .join("");
+  const content = tabs.find((t) => t.key === active).modules().filter(Boolean).join("");
+  return `
+    <nav class="ws-tabs" role="tablist" aria-label="Secciones del proceso">${tabBar}</nav>
+    <div class="module-grid">${content}</div>
   `;
 }
 
@@ -1768,6 +1801,12 @@ async function handleClick(event) {
       captureRoutineDraft();
       const idx = Number(btn.dataset.index);
       state.routineDraft = (state.routineDraft || []).filter((_, i) => i !== idx);
+      render();
+      return;
+    }
+
+    if (action === "switch-tab") {
+      state.activeTab = btn.dataset.tab || "hoy";
       render();
       return;
     }
