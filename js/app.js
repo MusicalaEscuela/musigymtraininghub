@@ -1065,28 +1065,50 @@ function renderRouteModule(mode) {
   `;
 }
 
+function renderObjectiveCard(o, mode) {
+  return mode !== "estudiante" ? `
+    <article class="list-item editable-item" data-objective-id="${escapeHtml(o.id)}">
+      <input name="title" value="${escapeHtml(o.title)}" placeholder="Objetivo" />
+      <textarea name="description" placeholder="Descripcion breve">${escapeHtml(o.description || "")}</textarea>
+      <div class="edit-row">
+        <select name="component">${optionList(["Tecnica", "Teoria", "Repertorio", "Creatividad", "Habitos"], o.component || "Tecnica")}</select>
+        <select name="status">${optionList(["active", "in_progress", "achieved", "archived"], o.status || "active")}</select>
+        <select name="priority">${optionList(["baja", "media", "alta"], o.priority || "media")}</select>
+      </div>
+      <div class="inline-actions">
+        <button class="btn tiny" data-action="save-objective" data-id="${escapeHtml(o.id)}">Guardar</button>
+        <button class="btn tiny ghost" data-action="delete-objective" data-id="${escapeHtml(o.id)}">Eliminar</button>
+      </div>
+    </article>
+  ` : `<article class="list-item"><strong>${escapeHtml(o.title)}</strong><p>${escapeHtml(o.description || "")}</p><small>${escapeHtml(o.status || "active")} - ${escapeHtml(o.priority || "media")}</small></article>`;
+}
+
 function renderObjectivesModule(mode) {
   const { objectives } = state.bundle;
+  // Grupos siempre visibles + extras solo si tienen objetivos.
+  const groups = [
+    { key: "Tecnica", label: "Objetivos técnicos", always: true },
+    { key: "Teoria", label: "Objetivos teóricos", always: true },
+    { key: "Repertorio", label: "Objetivos de repertorio", always: false },
+    { key: "Creatividad", label: "Objetivos de creatividad", always: false },
+    { key: "Habitos", label: "Hábitos", always: false },
+  ];
+  const groupsHtml = groups.map((g) => {
+    const items = objectives.filter((o) => (o.component || "Tecnica") === g.key);
+    if (!items.length && !g.always) return "";
+    return `
+      <div class="objective-group">
+        <h4 class="objective-group-title">${escapeHtml(g.label)} <span class="badge">${items.length}</span></h4>
+        <div class="stack-list">
+          ${items.map((o) => renderObjectiveCard(o, mode)).join("") || `<p class="empty">Sin objetivos en esta categoría.</p>`}
+        </div>
+      </div>
+    `;
+  }).join("");
   return `
     <section class="card module">
       <div class="section-header"><h3>Objetivos</h3><span class="badge">${objectives.length}</span></div>
-      <div class="stack-list">
-        ${objectives.map((o) => mode !== "estudiante" ? `
-          <article class="list-item editable-item" data-objective-id="${escapeHtml(o.id)}">
-            <input name="title" value="${escapeHtml(o.title)}" placeholder="Objetivo" />
-            <textarea name="description" placeholder="Descripcion breve">${escapeHtml(o.description || "")}</textarea>
-            <div class="edit-row">
-              <select name="component">${optionList(["Tecnica", "Teoria", "Repertorio", "Creatividad", "Habitos"], o.component || "Tecnica")}</select>
-              <select name="status">${optionList(["active", "in_progress", "achieved", "archived"], o.status || "active")}</select>
-              <select name="priority">${optionList(["baja", "media", "alta"], o.priority || "media")}</select>
-            </div>
-            <div class="inline-actions">
-              <button class="btn tiny" data-action="save-objective" data-id="${escapeHtml(o.id)}">Guardar</button>
-              <button class="btn tiny ghost" data-action="delete-objective" data-id="${escapeHtml(o.id)}">Eliminar</button>
-            </div>
-          </article>
-        ` : `<article class="list-item"><strong>${escapeHtml(o.title)}</strong><p>${escapeHtml(o.description || "")}</p><small>${escapeHtml(o.status || "active")} - ${escapeHtml(o.priority || "media")}</small></article>`).join("") || `<p class="empty">Sin objetivos todavia.</p>`}
-      </div>
+      ${groupsHtml}
       ${mode !== "estudiante" ? `
         <form class="mini-form" data-form="objective">
           <input name="title" placeholder="Nuevo objetivo" required />
@@ -1185,7 +1207,22 @@ function renderSessionsModule(mode) {
       <div class="timeline">
         ${sessions.slice(0, 8).map((s) => {
           const hasEvaluation = state.bundle.evaluations.some((e) => e.sessionId === s.id);
-          return `<article class="timeline-item"><small>${formatDate(s.date)} - ${escapeHtml(s.type || "Sesion")}</small><strong>${escapeHtml(s.summary || "Sesion registrada")}</strong><p>${escapeHtml(s.nextPractice || s.practiceRecommendations || "")}</p><span class="badge">Avance ${escapeHtml(s.progressScore || 0)}/100</span>${mode === "estudiante" ? `<button class="btn tiny ${hasEvaluation ? "ghost" : ""}" data-action="select-evaluation-session" data-id="${escapeHtml(s.id)}">${hasEvaluation ? "Autoevaluacion enviada" : "Hacer autoevaluacion"}</button>` : ""}</article>`;
+          const workedObjectives = (s.objectivesWorked || [])
+            .map((id) => objectives.find((o) => o.id === id)?.title)
+            .filter(Boolean);
+          const workedRoute = (s.routeItemsWorked || [])
+            .map((id) => { const it = route.find((r) => r.id === id); return it ? `${it.component} - ${it.title}` : null; })
+            .filter(Boolean);
+          const fullDetail = mode !== "estudiante" ? `
+            <details class="history-details session-detail">
+              <summary>Ver completo</summary>
+              ${s.practiceRecommendations ? `<p><b>Recomendaciones:</b> ${escapeHtml(s.practiceRecommendations)}</p>` : ""}
+              ${s.nextPractice ? `<p><b>Próxima práctica:</b> ${escapeHtml(s.nextPractice)}</p>` : ""}
+              ${s.teacherNotes ? `<p><b>Notas internas:</b> ${escapeHtml(s.teacherNotes)}</p>` : ""}
+              ${workedObjectives.length ? `<p><b>Objetivos trabajados:</b> ${escapeHtml(workedObjectives.join(", "))}</p>` : ""}
+              ${workedRoute.length ? `<p><b>Puntos de ruta:</b> ${escapeHtml(workedRoute.join(", "))}</p>` : ""}
+            </details>` : "";
+          return `<article class="timeline-item"><small>${formatDate(s.date)} - ${escapeHtml(s.type || "Sesion")}</small><strong>${escapeHtml(s.summary || "Sesion registrada")}</strong><p>${escapeHtml(s.nextPractice || s.practiceRecommendations || "")}</p><span class="badge">Avance ${escapeHtml(s.progressScore || 0)}/100</span>${fullDetail}${mode === "estudiante" ? `<button class="btn tiny ${hasEvaluation ? "ghost" : ""}" data-action="select-evaluation-session" data-id="${escapeHtml(s.id)}">${hasEvaluation ? "Autoevaluacion enviada" : "Hacer autoevaluacion"}</button>` : ""}</article>`;
         }).join("") || `<p class="empty">Sin sesiones registradas.</p>`}
       </div>
       ${mode !== "estudiante" ? `
@@ -1211,7 +1248,16 @@ function renderDiagnosticsModule(mode) {
   return `
     <section class="card module wide">
       <div class="section-header"><h3>Diagnóstico inicial</h3><span class="badge">${diagnostics.length}</span></div>
-      ${diagnostics[0] ? `<article class="diagnostic-summary"><strong>${formatDate(diagnostics[0].date || diagnostics[0].createdAt)}</strong><p><b>Fortalezas:</b> ${escapeHtml(diagnostics[0].strengths || "")}</p><p><b>Retos:</b> ${escapeHtml(diagnostics[0].challenges || "")}</p><p><b>Recomendación:</b> ${escapeHtml(diagnostics[0].recommendation || "")}</p></article>` : `<p class="empty">Primera sesión sin diagnóstico. El caos sonríe.</p>`}
+      ${diagnostics[0] ? (() => {
+        const d = diagnostics[0];
+        const extra = [
+          d.interests ? `<p><b>Intereses:</b> ${escapeHtml(d.interests)}</p>` : "",
+          d.technique ? `<p><b>Técnica:</b> ${escapeHtml(d.technique)}</p>` : "",
+          d.theory ? `<p><b>Teoría:</b> ${escapeHtml(d.theory)}</p>` : "",
+          d.repertoire ? `<p><b>Repertorio:</b> ${escapeHtml(d.repertoire)}</p>` : "",
+        ].filter(Boolean).join("");
+        return `<article class="diagnostic-summary"><strong>${formatDate(d.date || d.createdAt)}</strong><p><b>Fortalezas:</b> ${escapeHtml(d.strengths || "")}</p><p><b>Retos:</b> ${escapeHtml(d.challenges || "")}</p><p><b>Recomendación:</b> ${escapeHtml(d.recommendation || "")}</p>${extra ? `<details class="history-details"><summary>Ver diagnóstico completo</summary>${extra}</details>` : ""}</article>`;
+      })() : `<p class="empty">Primera sesión sin diagnóstico. El caos sonríe.</p>`}
       ${mode !== "estudiante" ? `
         <form class="form-grid" data-form="diagnostic">
           <label>Fecha <input type="date" name="date" value="${new Date().toISOString().slice(0, 10)}" /></label>

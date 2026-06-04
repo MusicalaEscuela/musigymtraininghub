@@ -153,6 +153,7 @@ input:focus, select:focus, textarea:focus { border-color: rgba(124,58,237,.52); 
 .form-grid label, .mini-form label { display: grid; gap: .3rem; color: var(--muted); font-size: .9rem; font-weight: 700; }
 .field-help { color: var(--muted); font-size: .78rem; font-weight: 600; line-height: 1.35; }
 .span-2 { grid-column: span 2; }
+.form-grid > button[type="submit"], .form-grid > .btn { grid-column: 1 / -1; justify-self: start; align-self: start; }
 
 /* Editor de rutinas */
 .header-actions { display: flex; align-items: center; gap: .5rem; }
@@ -269,6 +270,21 @@ input:focus, select:focus, textarea:focus { border-color: rgba(124,58,237,.52); 
 .coach-box p:last-child { margin: 0; color: var(--muted); }
 
 .routine-blocks, .route-list, .stack-list, .timeline { display: grid; gap: .7rem; }
+.objective-group { margin-top: 1rem; }
+.objective-group:first-of-type { margin-top: .4rem; }
+.objective-group-title {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin: 0 0 .55rem;
+  font-size: .82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted, #6b6b80);
+  padding-bottom: .35rem;
+  border-bottom: 1px solid var(--line);
+}
 .routine-block, .route-item, .list-item, .timeline-item, .diagnostic-summary, .report-card, .resource-card, .call-card {
   border: 1px solid var(--line);
   background: rgba(255,255,255,.72);

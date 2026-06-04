@@ -72,7 +72,14 @@ service cloud.firestore {
     match /musigym_users/{userId} {
       allow read: if signedIn() && (isAdmin() || userId == email());
       allow create: if signedIn() && (isAdmin() || userId == email() || bootstrapAdmin());
-      allow update, delete: if isAdmin();
+      // El propio usuario puede actualizar su perfil (p. ej. lastLoginAt) sin cambiar su rol ni su condicion de docente.
+      allow update: if isAdmin()
+        || (
+          userId == email()
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.isMusiGymTeacher == resource.data.isMusiGymTeacher
+        );
+      allow delete: if isAdmin();
     }
 
     match /musigym_students/{studentId} {
