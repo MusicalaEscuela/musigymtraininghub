@@ -15,7 +15,23 @@
     <script type="module" src="./js/app.js"></script>
     <script>
       if ("serviceWorker" in navigator && location.protocol !== "file:") {
-        window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(console.warn));
+        // Cuando un service worker nuevo toma el control, recarga una sola vez
+        // para que cada dispositivo abra siempre la última versión.
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (refreshing) return;
+          refreshing = true;
+          location.reload();
+        });
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("./sw.js").then((reg) => {
+            // Busca actualizaciones al abrir y cada vez que la pestaña vuelve al frente.
+            reg.update();
+            document.addEventListener("visibilitychange", () => {
+              if (document.visibilityState === "visible") reg.update();
+            });
+          }).catch(console.warn);
+        });
       }
     </script>
   </body>

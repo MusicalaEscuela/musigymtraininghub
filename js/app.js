@@ -88,6 +88,7 @@ const state = {
   message: "",
   coachMessagesByStudent: {},
   coachOpen: false,
+  diagnosticFormOpen: false,
   audioReady: false,
   audioContext: null,
   unsubscribeCalls: null,
@@ -1291,7 +1292,7 @@ function renderDiagnosticsModule(mode) {
         ].filter(Boolean).join("");
         return `<article class="diagnostic-summary"><strong>${formatDate(d.date || d.createdAt)}</strong><p><b>Fortalezas:</b> ${escapeHtml(d.strengths || "")}</p><p><b>Retos:</b> ${escapeHtml(d.challenges || "")}</p><p><b>Recomendación:</b> ${escapeHtml(d.recommendation || "")}</p>${extra ? `<details class="history-details"><summary>Ver diagnóstico completo</summary>${extra}</details>` : ""}</article>`;
       })() : `<p class="empty">Primera sesión sin diagnóstico. El caos sonríe.</p>`}
-      ${mode !== "estudiante" ? `
+      ${mode !== "estudiante" ? (state.diagnosticFormOpen ? `
         <form class="form-grid" data-form="diagnostic">
           <label>Fecha <input type="date" name="date" value="${new Date().toISOString().slice(0, 10)}" /></label>
           <label class="span-2">Fortalezas <textarea name="strengths" placeholder="Qué se ve fuerte desde el inicio"></textarea></label>
@@ -1301,9 +1302,14 @@ function renderDiagnosticsModule(mode) {
           <label>Teoría <textarea name="theory" placeholder="Lectura, ritmo, conceptos"></textarea></label>
           <label>Repertorio <textarea name="repertoire" placeholder="Canciones o piezas"></textarea></label>
           <label class="span-2">Hábitos y recomendación <textarea name="recommendation" placeholder="Ruta inicial sugerida"></textarea></label>
-          <button class="btn primary" type="submit">Guardar diagnóstico</button>
+          <div class="span-2 form-actions">
+            <button class="btn primary" type="submit">Guardar diagnóstico</button>
+            <button class="btn ghost" type="button" data-action="toggle-diagnostic-form">Cancelar</button>
+          </div>
         </form>
-      ` : ""}
+      ` : `
+        <button class="btn secondary" data-action="toggle-diagnostic-form">${diagnostics[0] ? "Agregar / editar diagnóstico" : "Agregar diagnóstico"}</button>
+      `) : ""}
     </section>
   `;
 }
@@ -1531,6 +1537,7 @@ async function handleSubmit(event) {
 
     if (type === "diagnostic") {
       await saveDiagnostic({ ...data, studentId: student.id, evaluatorEmail: state.profile.email, art: student.art, instrument: student.instrument });
+      state.diagnosticFormOpen = false;
       setMessage("Diagnóstico guardado.");
       await openStudent(student.id);
     }
@@ -1807,6 +1814,12 @@ async function handleClick(event) {
 
     if (action === "switch-tab") {
       state.activeTab = btn.dataset.tab || "hoy";
+      render();
+      return;
+    }
+
+    if (action === "toggle-diagnostic-form") {
+      state.diagnosticFormOpen = !state.diagnosticFormOpen;
       render();
       return;
     }

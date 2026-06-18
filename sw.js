@@ -1,4 +1,4 @@
-const CACHE_NAME = "musigym-musicala-v0-2-0";
+const CACHE_NAME = "musigym-musicala-v0-3-0";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -25,8 +25,32 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+// Código de la app (HTML/JS/CSS) => network-first: siempre trae lo último,
+// y solo cae al caché si no hay conexión. Así no toca recargar fuerte.
+function isAppCode(request) {
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return false;
+  if (request.mode === "navigate") return true;
+  return /\.(?:js|css|html|webmanifest)$/.test(url.pathname);
+}
+
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+
+  if (isAppCode(event.request)) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          return response;
+        })
+        .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
+    );
+    return;
+  }
+
+  // Resto de recursos (imágenes, csv) => cache-first con respaldo de red.
   event.respondWith(
     caches.match(event.request).then((cached) => cached || fetch(event.request).catch(() => cached))
   );
