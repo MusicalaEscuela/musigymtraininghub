@@ -1,0 +1,3 @@
+# Claves de servicio de Firebase: NUNCA subir al repositorio
+serviceAccount.*.json
+node_modules/

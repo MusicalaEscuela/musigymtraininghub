@@ -169,5 +169,14 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create, update, delete: if isAdmin();
     }
+
+    match /musigym_route_templates/{templateId} {
+      // Plantillas de la "Ruta de avance", sincronizadas desde Bitácoras de
+      // clase. Las lee cualquier usuario autenticado. La escritura la hace el
+      // script de sincronización con cuenta de servicio (omite estas reglas);
+      // el admin también puede editarlas manualmente si hace falta.
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
   }
 }

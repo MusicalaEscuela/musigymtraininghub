@@ -402,8 +402,51 @@ export async function deleteSongRequest(id) {
   await deleteDoc(doc(db, C.songRequests, id));
 }
 
+// Caché en memoria de las rutas cargadas desde Firestore (colección
+// musigym_route_templates, alimentada por la sincronización desde
+// "Bitácoras de clase"). Si está vacía, se usan las rutas embebidas
+// (DEFAULT_ROUTES) como respaldo para no romper nada.
+let routeTemplatesCache = null;
+
+function routeKeyForInstrument(instrument) {
+  return normalizeText(instrument).includes("guitarra") ? "guitarra" : "general";
+}
+
+// Carga (una sola vez) las plantillas de ruta desde Firestore. Cada documento
+// debe tener forma { key: "guitarra", items: [{ id, component, level, title, description }] }.
+// El id del documento también sirve como key. Se llama al iniciar la app.
+export async function loadRouteTemplates(force = false) {
+  if (routeTemplatesCache && !force) return routeTemplatesCache;
+  const map = {};
+  try {
+    const snap = await getDocs(collection(db, C.routeTemplates));
+    snap.docs.forEach((d) => {
+      const data = d.data() || {};
+      const key = normalizeText(data.key || d.id);
+      const items = Array.isArray(data.items) ? data.items : [];
+      if (key && items.length) {
+        map[key] = items.map((it) => ({
+          id: safeText(it.id),
+          component: safeText(it.component),
+          level: safeText(it.level),
+          title: safeText(it.title),
+          description: safeText(it.description),
+        }));
+      }
+    });
+  } catch (err) {
+    console.warn("No se pudieron cargar las plantillas de ruta; se usan las locales.", err);
+  }
+  routeTemplatesCache = map;
+  return map;
+}
+
 export function getRouteForInstrument(instrument) {
-  const key = normalizeText(instrument).includes("guitarra") ? "guitarra" : "general";
+  const key = routeKeyForInstrument(instrument);
+  if (routeTemplatesCache) {
+    if (routeTemplatesCache[key]?.length) return routeTemplatesCache[key];
+    if (routeTemplatesCache.general?.length) return routeTemplatesCache.general;
+  }
   return DEFAULT_ROUTES[key] || DEFAULT_ROUTES.general;
 }
 

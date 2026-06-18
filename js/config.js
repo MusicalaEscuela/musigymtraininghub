@@ -42,6 +42,7 @@ export const CONFIG = Object.freeze({
     nextQuestions: "musigym_next_questions",
     coachLogs: "musigym_coach_logs",
     routineTemplates: "musigym_routine_templates",
+    routeTemplates: "musigym_route_templates",
   },
 });
 

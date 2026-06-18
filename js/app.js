@@ -29,6 +29,7 @@ import {
   updateSongRequest,
   deleteSongRequest,
   getRouteForInstrument,
+  loadRouteTemplates,
   listRouteProgress,
   setRouteItemProgress,
   generateRoutine,
@@ -125,6 +126,9 @@ async function loadBaseData() {
     }),
     state.profile?.isAdmin ? listUsers().catch(() => []) : Promise.resolve([]),
     state.library.length ? Promise.resolve(state.library) : loadGuitarLibrary().catch(() => []),
+    // Plantillas de ruta sincronizadas desde Bitácoras de clase. Si la
+    // colección está vacía, getRouteForInstrument usa las rutas locales.
+    loadRouteTemplates().catch(() => {}),
   ]);
   // Excluir los perfiles "Vista de prueba Admin" creados por la version
   // anterior; esa funcion ya no existe.
