@@ -17,6 +17,7 @@ import {
   serverTimestamp,
   Timestamp,
   writeBatch,
+  fetchResourceLibrary,
 } from "./firebase.js";
 import {
   safeText,
@@ -826,6 +827,44 @@ export async function loadGuitarLibrary() {
     }))
     .filter((item) => item.active && item.name)
     .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, "es"));
+}
+
+// ===== Biblioteca de recursos (proyecto externo biblioteca-guitarra-fa182) =====
+// Carga los recursos publicados desde el otro proyecto Firebase y los normaliza
+// al formato que usa el modulo de Biblioteca de la app.
+export async function loadResourceLibrary() {
+  const raw = await fetchResourceLibrary();
+  return raw
+    .filter((r) => normalizeText(r.estado || "publicado") !== "archivado")
+    .map((r) => {
+      const enlaces = Array.isArray(r.enlaces) ? r.enlaces : [];
+      const firstLink = enlaces.find((e) => safeText(e.url))?.url || "";
+      const rawArea = safeText(r.area) || "general";
+      // Etiqueta bonita: "guitarra" -> "Guitarra", "teoría musical" -> "Teoría musical".
+      const area = rawArea.charAt(0).toUpperCase() + rawArea.slice(1);
+      return {
+        id: r.id,
+        name: safeText(r.titulo) || "Recurso sin título",
+        area,                              // etiqueta para mostrar
+        areaKey: normalizeText(rawArea),   // para casar con el instrumento
+        category: safeText(r.tipo) || "Recurso",
+        topic: safeText(r.tema),
+        notes: safeText(r.descripcion),
+        link: firstLink,
+        links: enlaces,
+        tags: Array.isArray(r.etiquetas) ? r.etiquetas : [],
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
+}
+
+// Devuelve los recursos que le corresponden a un estudiante segun su instrumento.
+// En Musica se incluye tanto el instrumento como "Teoria musical".
+export function resourcesForStudent(resources = [], student = {}) {
+  const instrumentKey = normalizeText(student.instrument || student.art || "");
+  if (!instrumentKey) return [];
+  const allowed = new Set([instrumentKey, "teoria musical"]);
+  return resources.filter((r) => allowed.has(r.areaKey));
 }
 
 function isRouteDone(status = "") {

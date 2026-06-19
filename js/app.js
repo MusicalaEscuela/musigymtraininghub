@@ -48,7 +48,8 @@ import {
   defaultRoutineTemplate,
   buildRoutineFromTemplate,
   templateKeyForInstrument,
-  loadGuitarLibrary,
+  loadResourceLibrary,
+  resourcesForStudent,
   observeTeacherCalls,
   requestTeacherHelp,
   resolveTeacherCall,
@@ -138,7 +139,7 @@ async function loadBaseData() {
       return [];
     }),
     state.profile?.isAdmin ? listUsers().catch(() => []) : Promise.resolve([]),
-    state.library.length ? Promise.resolve(state.library) : loadGuitarLibrary().catch(() => []),
+    state.library.length ? Promise.resolve(state.library) : loadResourceLibrary().catch(() => []),
     // Plantillas de ruta sincronizadas desde Bitácoras de clase. Si la
     // colección está vacía, getRouteForInstrument usa las rutas locales.
     loadRouteTemplates().catch(() => {}),
@@ -1573,32 +1574,39 @@ function renderPrepareNextSessionModule() {
 }
 
 function renderLibraryModule() {
-  const categories = unique(state.library.map((r) => r.category));
-  const levels = unique(state.library.map((r) => r.level));
+  const student = state.bundle?.student || {};
+  // Recursos del instrumento del estudiante + (en Música) teoría musical.
+  const forStudent = resourcesForStudent(state.library, student);
+  const areas = unique(forStudent.map((r) => r.area));      // p. ej. Guitarra, Teoría musical
+  const types = unique(forStudent.map((r) => r.category));  // tipo de recurso
   const q = state.libraryFilter.q;
-  const category = state.libraryFilter.category;
-  const level = state.libraryFilter.level;
-  const filtered = state.library.filter((r) => {
-    const hay = [r.name, r.category, r.level, r.tags?.join(" ")].join(" ");
-    return (!q || normalizeText(hay).includes(normalizeText(q))) && (!category || r.category === category) && (!level || r.level === level);
+  const area = state.libraryFilter.category;                // reusa el slot "category" para el área
+  const type = state.libraryFilter.level;                   // reusa el slot "level" para el tipo
+  const filtered = forStudent.filter((r) => {
+    const hay = [r.name, r.area, r.category, r.topic, r.tags?.join(" ")].join(" ");
+    return (!q || normalizeText(hay).includes(normalizeText(q)))
+      && (!area || r.area === area)
+      && (!type || r.category === type);
   });
+  const instrumentLabel = escapeHtml(student.instrument || student.art || "tu proceso");
   return `
     <section class="card module wide library-module">
-      <div class="section-header"><h3>Biblioteca de guitarra</h3><span class="badge">${filtered.length}/${state.library.length}</span></div>
+      <div class="section-header"><h3>Biblioteca de recursos</h3><span class="badge">${filtered.length}/${forStudent.length}</span></div>
+      <p class="helper">Recursos de <b>${instrumentLabel}</b>${forStudent.some((r) => r.areaKey === "teoria musical") ? " y <b>teoría musical</b>" : ""}.</p>
       <div class="library-filters">
         <input placeholder="Buscar recurso" value="${escapeHtml(q)}" data-action="library-filter" data-field="q" />
-        <select data-action="library-filter" data-field="category"><option value="">Todas las categorías</option>${optionList(categories, category)}</select>
-        <select data-action="library-filter" data-field="level"><option value="">Todos los niveles</option>${optionList(levels, level)}</select>
+        <select data-action="library-filter" data-field="category"><option value="">Todas las áreas</option>${optionList(areas, area)}</select>
+        <select data-action="library-filter" data-field="level"><option value="">Todos los tipos</option>${optionList(types, type)}</select>
       </div>
       <div class="library-grid">
-        ${filtered.slice(0, 36).map((r) => `
+        ${filtered.slice(0, 60).map((r) => `
           <article class="resource-card">
-            <small>${escapeHtml(r.category)} · ${escapeHtml(r.level || "Nivel libre")}</small>
+            <small>${escapeHtml(r.area)}${r.topic ? ` · ${escapeHtml(r.topic)}` : ""}</small>
             <strong>${escapeHtml(r.name)}</strong>
-            <p>${escapeHtml(r.notes || r.author || "Recurso Musicala")}</p>
+            <p>${escapeHtml(r.notes || "Recurso Musicala")}</p>
             ${r.link ? `<button class="btn tiny" data-action="preview-resource" data-link="${escapeHtml(r.link)}">Abrir dentro</button>` : `<span class="badge warn">Sin enlace</span>`}
           </article>
-        `).join("") || `<p class="empty">No encontré recursos con esos filtros.</p>`}
+        `).join("") || `<p class="empty">Aún no hay recursos para ${instrumentLabel} en la biblioteca.</p>`}
       </div>
       <div id="libraryFrameHost" class="library-frame-host"></div>
     </section>
@@ -2187,7 +2195,7 @@ async function handleClick(event) {
       const host = document.getElementById("libraryFrameHost");
       if (host) {
         host.innerHTML = `
-          <div class="frame-toolbar"><strong>Recurso seleccionado</strong><a class="btn tiny" href="${escapeHtml(btn.dataset.link)}" target="_blank" rel="noopener">Abrir en otra pesta?a</a></div>
+          <div class="frame-toolbar"><strong>Recurso seleccionado</strong><a class="btn tiny" href="${escapeHtml(btn.dataset.link)}" target="_blank" rel="noopener">Abrir en otra pestaña</a></div>
           <iframe src="${escapeHtml(btn.dataset.link)}" title="Recurso de biblioteca"></iframe>
         `;
         host.scrollIntoView({ behavior: "smooth", block: "center" });

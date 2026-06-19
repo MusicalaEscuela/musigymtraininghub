@@ -44,6 +44,21 @@ const db = initializeFirestore(app, {
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
 
+// Segunda app de Firebase: proyecto de la Biblioteca de recursos (solo lectura).
+const LIB_APP_NAME = "biblioteca";
+const libraryApp = getApps().find((a) => a.name === LIB_APP_NAME)
+  || initializeApp(CONFIG.libraryFirebase, LIB_APP_NAME);
+const libraryDb = initializeFirestore(libraryApp, {
+  experimentalAutoDetectLongPolling: true,
+  useFetchStreams: false,
+});
+
+// Lee todos los recursos de la biblioteca externa. Lectura publica, sin login.
+export async function fetchResourceLibrary() {
+  const snap = await getDocs(collection(libraryDb, "recursos"));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
 export {
   app,
   auth,

@@ -14,6 +14,18 @@ export const CONFIG = Object.freeze({
     appId: "1:129695050633:web:dfe60b76bc76f7e2900f58"
   },
 
+  // Proyecto Firebase de la "Biblioteca de recursos Musicala" (separado).
+  // La coleccion "recursos" tiene lectura publica (allow read: if true), asi que
+  // MusiGym la consume en solo lectura desde una segunda app de Firebase.
+  libraryFirebase: {
+    apiKey: "AIzaSyD8p1Ges94PMBPE-wuFVjeE5uGzeUQYBS0",
+    authDomain: "biblioteca-guitarra-fa182.firebaseapp.com",
+    projectId: "biblioteca-guitarra-fa182",
+    storageBucket: "biblioteca-guitarra-fa182.firebasestorage.app",
+    messagingSenderId: "803045423554",
+    appId: "1:803045423554:web:9bd5bda0d45f9e33f07e5b",
+  },
+
   appsScript: {
     studentsUrl:
       "https://script.google.com/macros/s/AKfycbyUAseB3vjBz3uBPc2gXQkjd6temDaDkZShXVVUZpKfATrN8A8czpdloTcz0YxBd7Y7LQ/exec",
