@@ -23,6 +23,8 @@ import {
   deleteObjective,
   saveDiagnostic,
   saveSession,
+  updateSession,
+  deleteSession,
   saveSelfEvaluation,
   getNextQuestions,
   getPendingQuestions,
@@ -99,6 +101,7 @@ const state = {
   editingObjectiveId: "",
   songFormOpen: false,
   editingSongId: "",
+  editingSessionId: "",
   audioReady: false,
   audioContext: null,
   unsubscribeCalls: null,
@@ -1367,6 +1370,34 @@ function renderNextQuestionsModule(mode) {
   `;
 }
 
+function toDateInputValue(value) {
+  const d = value?.toDate ? value.toDate() : (value ? new Date(value) : new Date());
+  if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 10);
+  // Fecha local en formato YYYY-MM-DD (sin corrimiento de zona horaria).
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function renderSessionEditForm(s) {
+  return `
+    <article class="timeline-item editable-item" data-session-id="${escapeHtml(s.id)}">
+      <div class="edit-row">
+        <label class="field-mini">Fecha<input type="date" name="date" value="${escapeHtml(toDateInputValue(s.date))}" /></label>
+        <label class="field-mini">Tipo<select name="type">${optionList(CATALOGS.sessionTypes, s.type || "Práctica guiada")}</select></label>
+        <label class="field-mini">Avance 0-100<input type="number" min="0" max="100" name="progressScore" value="${escapeHtml(s.progressScore || 0)}" /></label>
+      </div>
+      <label class="field-mini">Resumen<textarea name="summary">${escapeHtml(s.summary || "")}</textarea></label>
+      <label class="field-mini">Recomendaciones<textarea name="practiceRecommendations">${escapeHtml(s.practiceRecommendations || "")}</textarea></label>
+      <label class="field-mini">Próxima práctica<textarea name="nextPractice">${escapeHtml(s.nextPractice || "")}</textarea></label>
+      <label class="field-mini">Notas internas<textarea name="teacherNotes">${escapeHtml(s.teacherNotes || "")}</textarea></label>
+      <div class="inline-actions">
+        <button class="btn tiny" data-action="save-session-edit" data-id="${escapeHtml(s.id)}">Guardar cambios</button>
+        <button class="btn tiny ghost" data-action="cancel-edit-session">Cancelar</button>
+        <button class="btn tiny ghost" data-action="delete-session" data-id="${escapeHtml(s.id)}">Eliminar</button>
+      </div>
+    </article>
+  `;
+}
+
 function renderSessionsModule(mode) {
   const { sessions, objectives } = state.bundle;
   const route = getRouteForInstrument(state.bundle.student.instrument);
@@ -1375,6 +1406,9 @@ function renderSessionsModule(mode) {
       <div class="section-header"><h3>${mode === "estudiante" ? "Mis sesiones" : "Bitácoras de sesiones"}</h3><span class="badge">${sessions.length}</span></div>
       <div class="timeline">
         ${sessions.slice(0, 8).map((s) => {
+          if (mode !== "estudiante" && state.editingSessionId === s.id) {
+            return renderSessionEditForm(s);
+          }
           const hasEvaluation = state.bundle.evaluations.some((e) => e.sessionId === s.id);
           const workedObjectives = (s.objectivesWorked || [])
             .map((id) => objectives.find((o) => o.id === id)?.title)
@@ -1391,7 +1425,8 @@ function renderSessionsModule(mode) {
               ${workedObjectives.length ? `<p><b>Objetivos trabajados:</b> ${escapeHtml(workedObjectives.join(", "))}</p>` : ""}
               ${workedRoute.length ? `<p><b>Puntos de ruta:</b> ${escapeHtml(workedRoute.join(", "))}</p>` : ""}
             </details>` : "";
-          return `<article class="timeline-item"><small>${formatDate(s.date)} - ${escapeHtml(s.type || "Sesion")}</small><strong>${escapeHtml(s.summary || "Sesion registrada")}</strong><p>${escapeHtml(s.nextPractice || s.practiceRecommendations || "")}</p><span class="badge">Avance ${escapeHtml(s.progressScore || 0)}/100</span>${fullDetail}${mode === "estudiante" ? `<button class="btn tiny ${hasEvaluation ? "ghost" : ""}" data-action="select-evaluation-session" data-id="${escapeHtml(s.id)}">${hasEvaluation ? "Autoevaluacion enviada" : "Hacer autoevaluacion"}</button>` : ""}</article>`;
+          const teacherActions = mode !== "estudiante" ? `<div class="inline-actions"><button class="btn tiny ghost" data-action="edit-session" data-id="${escapeHtml(s.id)}">Editar</button><button class="btn tiny ghost" data-action="delete-session" data-id="${escapeHtml(s.id)}">Eliminar</button></div>` : "";
+          return `<article class="timeline-item"><small>${formatDate(s.date)} - ${escapeHtml(s.type || "Sesion")}</small><strong>${escapeHtml(s.summary || "Sesion registrada")}</strong><p>${escapeHtml(s.nextPractice || s.practiceRecommendations || "")}</p><span class="badge">Avance ${escapeHtml(s.progressScore || 0)}/100</span>${fullDetail}${mode === "estudiante" ? `<button class="btn tiny ${hasEvaluation ? "ghost" : ""}" data-action="select-evaluation-session" data-id="${escapeHtml(s.id)}">${hasEvaluation ? "Autoevaluacion enviada" : "Hacer autoevaluacion"}</button>` : ""}${teacherActions}</article>`;
         }).join("") || `<p class="empty">Aún no hay sesiones registradas en tu proceso.</p>`}
       </div>
       ${mode !== "estudiante" ? `
@@ -1842,6 +1877,40 @@ async function handleClick(event) {
       await deleteSongRequest(btn.dataset.id);
       state.editingSongId = "";
       setMessage("Canción quitada.");
+      await openStudent(state.bundle.student.id);
+    }
+
+    if (action === "edit-session") {
+      state.editingSessionId = btn.dataset.id;
+      render();
+    }
+
+    if (action === "cancel-edit-session") {
+      state.editingSessionId = "";
+      render();
+    }
+
+    if (action === "save-session-edit") {
+      const card = btn.closest("[data-session-id]");
+      await updateSession(btn.dataset.id, {
+        date: card.querySelector('[name="date"]')?.value || "",
+        type: card.querySelector('[name="type"]')?.value || "",
+        progressScore: card.querySelector('[name="progressScore"]')?.value || 0,
+        summary: card.querySelector('[name="summary"]')?.value || "",
+        practiceRecommendations: card.querySelector('[name="practiceRecommendations"]')?.value || "",
+        nextPractice: card.querySelector('[name="nextPractice"]')?.value || "",
+        teacherNotes: card.querySelector('[name="teacherNotes"]')?.value || "",
+      });
+      state.editingSessionId = "";
+      setMessage("Bitácora actualizada.");
+      await openStudent(state.bundle.student.id);
+    }
+
+    if (action === "delete-session") {
+      if (!confirm("¿Eliminar esta bitácora? No se puede deshacer.")) return;
+      await deleteSession(btn.dataset.id);
+      state.editingSessionId = "";
+      setMessage("Bitácora eliminada.");
       await openStudent(state.bundle.student.id);
     }
 

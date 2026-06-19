@@ -411,6 +411,23 @@ export async function saveSession(data) {
   return sessionRef;
 }
 
+export async function updateSession(id, patch = {}) {
+  const data = {};
+  if (patch.date !== undefined) data.date = Timestamp.fromDate(parseDateInput(patch.date));
+  if (patch.type !== undefined) data.type = safeText(patch.type) || "Práctica guiada";
+  if (patch.summary !== undefined) data.summary = safeText(patch.summary);
+  if (patch.practiceRecommendations !== undefined) data.practiceRecommendations = safeText(patch.practiceRecommendations);
+  if (patch.nextPractice !== undefined) data.nextPractice = safeText(patch.nextPractice);
+  if (patch.teacherNotes !== undefined) data.teacherNotes = safeText(patch.teacherNotes);
+  if (patch.progressScore !== undefined) data.progressScore = Number(patch.progressScore || 0);
+  data.updatedAt = nowStamp();
+  await setDoc(doc(db, C.sessions, id), data, { merge: true });
+}
+
+export async function deleteSession(id) {
+  await deleteDoc(doc(db, C.sessions, id));
+}
+
 export async function saveSelfEvaluation(data) {
   return addDoc(collection(db, C.selfEvaluations), {
     studentId: data.studentId,

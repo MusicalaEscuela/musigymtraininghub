@@ -1,4 +1,4 @@
-const CACHE_NAME = "musigym-musicala-v0-8-3";
+const CACHE_NAME = "musigym-musicala-v0-9-0";
 const APP_SHELL = [
   "./",
   "./index.html",
