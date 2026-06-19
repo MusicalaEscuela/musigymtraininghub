@@ -1,4 +1,4 @@
-const CACHE_NAME = "musigym-musicala-v0-8-1";
+const CACHE_NAME = "musigym-musicala-v0-8-2";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -16,6 +16,11 @@ const APP_SHELL = [
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
   self.skipWaiting();
+});
+
+// Permite que la página fuerce la activación inmediata de una versión nueva.
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
