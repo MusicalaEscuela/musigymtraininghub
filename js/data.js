@@ -27,6 +27,7 @@ import {
   monthKey,
   monthRange,
   uid,
+  parseDateInput,
 } from "./utils.js";
 import {
   getInstrumentKnowledge,
@@ -368,7 +369,7 @@ export async function saveDiagnostic(data) {
     studentId: data.studentId,
     studentEmail: safeText(data.studentEmail).toLowerCase(),
     evaluatorEmail: data.evaluatorEmail || "",
-    date: data.date ? Timestamp.fromDate(new Date(data.date)) : nowStamp(),
+    date: data.date ? Timestamp.fromDate(parseDateInput(data.date)) : nowStamp(),
     art: safeText(data.art),
     instrument: safeText(data.instrument),
     strengths: safeText(data.strengths),
@@ -389,7 +390,7 @@ export async function saveSession(data) {
     studentId: data.studentId,
     studentEmail: safeText(data.studentEmail).toLowerCase(),
     teacherEmail: data.teacherEmail || "",
-    date: data.date ? Timestamp.fromDate(new Date(data.date)) : nowStamp(),
+    date: data.date ? Timestamp.fromDate(parseDateInput(data.date)) : nowStamp(),
     type: safeText(data.type) || "Práctica guiada",
     summary: safeText(data.summary),
     objectivesWorked: data.objectivesWorked || [],

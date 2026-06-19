@@ -28,6 +28,21 @@ export function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+// Convierte el valor de un <input type="date"> ("YYYY-MM-DD") en una fecha
+// LOCAL al mediodía. Si se usa new Date("YYYY-MM-DD") el navegador lo toma como
+// medianoche UTC y, en zonas con desfase negativo (p. ej. Colombia, UTC-5),
+// la fecha mostrada cae el día anterior. El mediodía evita ese corrimiento.
+export function parseDateInput(value) {
+  const text = safeText(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (match) {
+    const [, y, m, d] = match;
+    return new Date(Number(y), Number(m) - 1, Number(d), 12, 0, 0, 0);
+  }
+  const fallback = new Date(text);
+  return Number.isNaN(fallback.getTime()) ? new Date() : fallback;
+}
+
 export function formatDate(value) {
   if (!value) return "Sin fecha";
   const date = value?.toDate ? value.toDate() : new Date(value);
