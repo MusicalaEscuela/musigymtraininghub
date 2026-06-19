@@ -12,6 +12,10 @@ import {
   saveUserRole,
   updateStudent,
   findStudentByEmail,
+  studentAccessEmail,
+  restampStudentAccessEmail,
+  listByStudentEmail,
+  listRouteProgressByEmail,
   getStudent,
   listByStudent,
   createObjective,
@@ -72,6 +76,7 @@ const state = {
   users: [],
   selectedStudentId: "",
   studentSearch: "",
+  showAllStudents: false,
   currentViewMode: "admin",
   editingRoutineId: "",
   routineDraft: null,
@@ -90,6 +95,10 @@ const state = {
   coachMessagesByStudent: {},
   coachOpen: false,
   diagnosticFormOpen: false,
+  objectiveFormOpen: false,
+  editingObjectiveId: "",
+  songFormOpen: false,
+  editingSongId: "",
   audioReady: false,
   audioContext: null,
   unsubscribeCalls: null,
@@ -191,16 +200,27 @@ async function openStudent(studentId, shouldRender = true) {
 
   const student = await getStudent(studentId);
   if (!student) return;
+
+  // Si quien mira es el propio estudiante (no admin ni docente), las consultas
+  // del proceso deben filtrar por studentEmail para que las reglas las acepten
+  // ("las reglas no son filtros" en Firestore). Admin/docente usan studentId.
+  const viewerIsStudent = state.profile?.isStudent && !state.profile?.isAdmin && !state.profile?.isTeacher;
+  const accessEmail = studentAccessEmail(student) || safeText(state.profile?.email).toLowerCase();
+  const listProcess = (col, orderField = "createdAt", direction = "desc") =>
+    viewerIsStudent
+      ? listByStudentEmail(col, accessEmail, orderField, direction)
+      : listByStudent(col, studentId, orderField, direction);
+
   const [objectives, routines, sessions, diagnostics, evaluations, songs, progress, reports, coachLogs] = await Promise.all([
-    listByStudent(C.objectives, studentId).catch(() => []),
-    listByStudent(C.routines, studentId).catch(() => []),
-    listByStudent(C.sessions, studentId, "date", "desc").catch(() => []),
-    listByStudent(C.diagnostics, studentId).catch(() => []),
-    listByStudent(C.selfEvaluations, studentId).catch(() => []),
-    listByStudent(C.songRequests, studentId).catch(() => []),
-    listRouteProgress(studentId).catch(() => []),
-    listByStudent(C.monthlyReports, studentId, "generatedAt", "desc").catch(() => []),
-    listByStudent(C.coachLogs, studentId, "createdAt", "desc").catch(() => []),
+    listProcess(C.objectives).catch(() => []),
+    listProcess(C.routines).catch(() => []),
+    listProcess(C.sessions, "date", "desc").catch(() => []),
+    listProcess(C.diagnostics).catch(() => []),
+    listProcess(C.selfEvaluations).catch(() => []),
+    listProcess(C.songRequests).catch(() => []),
+    (viewerIsStudent ? listRouteProgressByEmail(accessEmail) : listRouteProgress(studentId)).catch(() => []),
+    listProcess(C.monthlyReports, "generatedAt", "desc").catch(() => []),
+    listProcess(C.coachLogs, "createdAt", "desc").catch(() => []),
   ]);
   const nextQuestions = await getNextQuestions(studentId).catch(() => ({ studentId, questions: [] }));
 
@@ -227,7 +247,7 @@ function enableAudio() {
   state.audioContext = state.audioContext || new AudioContext();
   state.audioReady = true;
   playAlarm(1);
-  setMessage("Alarma activada. Ya puede sonar cuando un estudiante pida ayuda. Los navegadores son una belleza bloqueando sonidos útiles, por eso tocaba este botón.");
+  setMessage("Aviso activado. Ahora sonará cuando un estudiante te llame para pedir apoyo.");
 }
 
 function playAlarm(times = 3) {
@@ -413,7 +433,7 @@ function renderCurrentView() {
 }
 
 function renderLoading(text) {
-  return `<section class="center-card"><div class="spinner"></div><h2>${escapeHtml(text)}</h2><p>La humanidad sigue dependiendo de ruedas girando para sentir progreso.</p></section>`;
+  return `<section class="center-card"><div class="spinner"></div><h2>${escapeHtml(text)}</h2><p>Afinando los detalles, dame un momento...</p></section>`;
 }
 
 function renderLogin() {
@@ -426,7 +446,7 @@ function renderLogin() {
         <button class="btn primary large" data-action="login">Entrar con Google</button>
       </article>
       <aside class="feature-stack">
-        ${["Rutinas automáticas", "Bot de práctica", "Llamado al profe", "Informes mensuales", "Biblioteca de practica", "Proceso del estudiante"].map((x) => `<div class="mini-feature">${escapeHtml(x)}</div>`).join("")}
+        ${["Rutinas de práctica", "Acompañante de práctica", "Llamado al profe", "Informes mensuales", "Biblioteca de práctica", "Proceso del estudiante"].map((x) => `<div class="mini-feature">${escapeHtml(x)}</div>`).join("")}
       </aside>
     </section>
   `;
@@ -541,7 +561,8 @@ function renderStudent() {
     return `
       <section class="center-card">
         <h2>Aún no encontramos tu perfil MusiGym</h2>
-        <p>Revisa que el correo de ingreso sea el mismo que aparece en tu ficha y que tu estado MusiGym este activo.</p>
+        <p>Entraste con <b>${escapeHtml(state.profile?.email || "tu correo")}</b>. Para ingresar, ese correo debe coincidir con el de tu ficha y tu estado MusiGym debe estar activo.</p>
+        <p>Si crees que es un error, pídele al equipo Musicala que registre este correo como tu <b>correo de acceso</b> en tu ficha.</p>
       </section>
     `;
   }
@@ -578,7 +599,7 @@ function renderCallsBox() {
           </div>
           <button class="btn tiny" data-action="resolve-call" data-id="${escapeHtml(call.id)}">Atendido</button>
         </article>
-      `).join("") : `<p class="empty">Sin llamados pendientes. Sospechoso, pero agradable.</p>`}
+      `).join("") : `<p class="empty">Por ahora nadie te ha llamado. Todo en calma.</p>`}
     </div>
   `;
 }
@@ -586,34 +607,44 @@ function renderCallsBox() {
 function renderStudentList(showAllControls) {
   const q = state.studentSearch || "";
   const searching = !!q.trim();
+  const showAll = showAllControls && state.showAllStudents;
   const filtered = state.students.filter((student) => {
     if (searching) {
-      const hay = [student.name, student.email, student.instrument, student.art, student.emphasis].join(" ");
+      const hay = [student.name, student.email, student.emailOverride, student.instrument, student.art, student.emphasis].join(" ");
       return normalizeText(hay).includes(normalizeText(q));
     }
-    // Sin búsqueda en panel admin: solo estudiantes activos en MusiGym.
-    // Para activar a alguien nuevo, el admin lo busca por nombre.
-    if (showAllControls) return !!student.isMusiGym;
+    // Panel admin: por defecto solo activos en MusiGym. Con "Ver todos"
+    // activado se muestran todos los estudiantes sincronizados.
+    if (showAllControls) return showAll ? true : !!student.isMusiGym;
     return true;
   });
-  const emptyMsg = showAllControls && !searching
-    ? `<p class="empty">Aún no hay estudiantes activos en MusiGym. Busca un estudiante por su nombre para activarlo.</p>`
+  const totalActive = state.students.filter((s) => s.isMusiGym).length;
+  const emptyMsg = showAllControls && !searching && !showAll
+    ? `<p class="empty">Aún no hay estudiantes activos en MusiGym. Busca un estudiante por su nombre o usa "Ver todos".</p>`
     : `<p class="empty">No hay estudiantes para mostrar.</p>`;
+  const heading = showAllControls
+    ? (showAll ? `Todos los estudiantes (${state.students.length})` : `Activos en MusiGym (${totalActive})`)
+    : "Tus estudiantes activos";
   return `
     <section class="card">
       <div class="section-header">
         <div>
           <p class="eyebrow">Estudiantes</p>
-          <h2>${showAllControls ? "Activos en MusiGym" : "Tus estudiantes activos"}</h2>
+          <h2>${heading}</h2>
         </div>
-        <input id="studentSearch" class="search" placeholder="${showAllControls ? "Buscar para activar un estudiante..." : "Buscar estudiante..."}" value="${escapeHtml(q)}" data-action="student-search" />
+        <input id="studentSearch" class="search" placeholder="${showAllControls ? "Buscar estudiante..." : "Buscar estudiante..."}" value="${escapeHtml(q)}" data-action="student-search" />
       </div>
-      ${showAllControls && !searching ? `<p class="list-hint">Mostrando solo activos. Escribe un nombre en el buscador para activar a alguien nuevo.</p>` : ""}
+      ${showAllControls ? `
+        <div class="list-toolbar">
+          <button class="btn tiny ${showAll ? "primary" : "secondary"}" data-action="toggle-all-students">${showAll ? "Mostrando todos" : "Ver todos los estudiantes"}</button>
+          <span class="list-hint">${showAll ? `Mostrando los ${state.students.length} sincronizados. Toca de nuevo para ver solo activos.` : `Mostrando solo activos. Escribe un nombre o toca "Ver todos".`}</span>
+        </div>` : ""}
       <div class="student-grid">
         ${filtered.map((student) => `
           <button class="student-card ${state.selectedStudentId === student.id ? "active" : ""}" data-action="select-student" data-id="${escapeHtml(student.id)}">
             <strong>${escapeHtml(student.name)}</strong>
             <span>${escapeHtml(student.instrument || student.art || "Sin arte")}</span>
+            ${showAllControls ? `<small class="card-email">${escapeHtml(student.emailOverride || student.email || "Sin correo")}</small>` : ""}
             <small>${student.isMusiGym ? "Activo MusiGym" : "No activo"}</small>
           </button>
         `).join("") || emptyMsg}
@@ -640,7 +671,7 @@ function renderSelectedStudentWorkspace(mode) {
           <p>${escapeHtml(student.instrument || "Sin instrumento")} - ${escapeHtml(student.level || "Sin nivel")} - ${escapeHtml(student.emphasis || "Sin enfasis")}</p>
           <div class="student-meta-line">
             <span>Edad: ${escapeHtml(student.age || student.edad || "Sin dato")}</span>
-            <span>Correo: ${escapeHtml(student.email || student.correo || "Sin correo")}</span>
+            <span>Correo: ${escapeHtml(student.emailOverride || student.email || student.correo || "Sin correo")}</span>
           </div>
         </div>
         <div class="banner-actions">
@@ -710,6 +741,10 @@ function renderStudentConfig(student) {
         <label>Instrumento/area <select name="instrument">${optionList(CATALOGS.instruments, student.instrument)}</select></label>
         <label>Enfasis <select name="emphasis">${optionList(CATALOGS.emphases, student.emphasis)}</select></label>
         <label>Nivel <select name="level">${optionList(CATALOGS.levels, student.level)}</select></label>
+        <label class="span-2">Correo de acceso (override)
+          <input type="email" name="emailOverride" value="${escapeHtml(student.emailOverride || "")}" placeholder="${escapeHtml(student.email || "correo@ejemplo.com")}" />
+          <small class="helper">Correo base de Sheets: <b>${escapeHtml(student.email || "sin correo")}</b>. Si el estudiante entra con otro correo de Google, escríbelo aquí. Esto NO se borra al sincronizar. Déjalo vacío para usar el de Sheets.</small>
+        </label>
         <button class="btn primary" type="submit">Guardar configuracion</button>
       </form>
     </section>
@@ -832,8 +867,9 @@ async function runCoachInteraction({ text = "", intent = "" } = {}) {
     text: userText,
     intent,
   });
-  const userMessage = { role: "student", intent: response.intent, text: userText, createdBy: state.profile?.email || "" };
-  const coachMessage = { role: "coach", intent: response.intent, text: `${response.title}\n${response.body}`, createdBy: "MusiCoach" };
+  const accessEmail = studentAccessEmail(b.student);
+  const userMessage = { role: "student", intent: response.intent, text: userText, createdBy: state.profile?.email || "", studentEmail: accessEmail };
+  const coachMessage = { role: "coach", intent: response.intent, text: `${response.title}\n${response.body}`, createdBy: "MusiCoach", studentEmail: accessEmail };
   addLocalCoachMessages(b.student.id, [userMessage, coachMessage]);
   b.coachLogs = [coachMessage, userMessage, ...(b.coachLogs || [])];
   try {
@@ -892,7 +928,7 @@ function renderRoutineModule(mode) {
             </article>
           `).join("")}
         </div>
-      ` : `<p class="empty">Aún no hay rutina. Crear una a mano da pereza; por eso hay botón automático.</p>`}
+      ` : `<p class="empty">Todavía no hay una rutina de práctica. Tu profe te preparará una pronto.</p>`}
       ${mode !== "estudiante" && routines.length ? `
         <div class="chips">${routines.map((r) => `<button class="chip" data-action="set-routine" data-id="${escapeHtml(r.id)}">${escapeHtml(r.title)}</button>`).join("")}</div>
       ` : ""}
@@ -1103,22 +1139,69 @@ function renderRouteModule(mode) {
   `;
 }
 
+const OBJECTIVE_STATUS_LABELS = {
+  active: "Por empezar",
+  in_progress: "En proceso",
+  achieved: "Logrado",
+  archived: "Guardado",
+};
+const OBJECTIVE_PRIORITY_LABELS = { baja: "Tranquilo", media: "Importante", alta: "Prioritario" };
+
+function objectiveStatusLabel(status) {
+  return OBJECTIVE_STATUS_LABELS[status] || "Por empezar";
+}
+function objectivePriorityLabel(priority) {
+  return OBJECTIVE_PRIORITY_LABELS[priority] || "Importante";
+}
+
 function renderObjectiveCard(o, mode) {
-  return mode !== "estudiante" ? `
-    <article class="list-item editable-item" data-objective-id="${escapeHtml(o.id)}">
-      <input name="title" value="${escapeHtml(o.title)}" placeholder="Objetivo" />
-      <textarea name="description" placeholder="Descripcion breve">${escapeHtml(o.description || "")}</textarea>
-      <div class="edit-row">
-        <select name="component">${optionList(["Tecnica", "Teoria", "Repertorio", "Creatividad", "Habitos"], o.component || "Tecnica")}</select>
-        <select name="status">${optionList(["active", "in_progress", "achieved", "archived"], o.status || "active")}</select>
-        <select name="priority">${optionList(["baja", "media", "alta"], o.priority || "media")}</select>
+  // Vista estudiante: solo lectura, en tarjeta amable.
+  if (mode === "estudiante") {
+    return `
+      <article class="objective-row status-${escapeHtml(o.status || "active")}">
+        <div class="objective-row-main">
+          <strong>${escapeHtml(o.title)}</strong>
+          ${o.description ? `<p>${escapeHtml(o.description)}</p>` : ""}
+        </div>
+        <span class="chip chip-${escapeHtml(o.status || "active")}">${escapeHtml(objectiveStatusLabel(o.status))}</span>
+      </article>
+    `;
+  }
+
+  // Docente/Admin en modo edición de ESTE objetivo: formulario completo.
+  if (state.editingObjectiveId === o.id) {
+    return `
+      <article class="list-item editable-item objective-editing" data-objective-id="${escapeHtml(o.id)}">
+        <input name="title" value="${escapeHtml(o.title)}" placeholder="¿Qué quieres lograr?" />
+        <textarea name="description" placeholder="Una nota breve (opcional)">${escapeHtml(o.description || "")}</textarea>
+        <div class="edit-row">
+          <label class="field-mini">Área<select name="component">${optionList(["Tecnica", "Teoria", "Repertorio", "Creatividad", "Habitos"], o.component || "Tecnica")}</select></label>
+          <label class="field-mini">¿Cómo va?<select name="status">${optionList(["active", "in_progress", "achieved", "archived"], o.status || "active")}</select></label>
+          <label class="field-mini">Foco<select name="priority">${optionList(["baja", "media", "alta"], o.priority || "media")}</select></label>
+        </div>
+        <div class="inline-actions">
+          <button class="btn tiny" data-action="save-objective" data-id="${escapeHtml(o.id)}">Guardar</button>
+          <button class="btn tiny ghost" data-action="cancel-edit-objective">Cancelar</button>
+          <button class="btn tiny ghost" data-action="delete-objective" data-id="${escapeHtml(o.id)}">Quitar</button>
+        </div>
+      </article>
+    `;
+  }
+
+  // Docente/Admin: fila bonita de solo lectura con botón para editar.
+  return `
+    <article class="objective-row status-${escapeHtml(o.status || "active")}">
+      <div class="objective-row-main">
+        <strong>${escapeHtml(o.title)}</strong>
+        ${o.description ? `<p>${escapeHtml(o.description)}</p>` : ""}
       </div>
-      <div class="inline-actions">
-        <button class="btn tiny" data-action="save-objective" data-id="${escapeHtml(o.id)}">Guardar</button>
-        <button class="btn tiny ghost" data-action="delete-objective" data-id="${escapeHtml(o.id)}">Eliminar</button>
+      <div class="objective-row-meta">
+        <span class="chip chip-${escapeHtml(o.status || "active")}">${escapeHtml(objectiveStatusLabel(o.status))}</span>
+        <span class="chip chip-soft">${escapeHtml(objectivePriorityLabel(o.priority))}</span>
+        <button class="btn tiny ghost" data-action="edit-objective" data-id="${escapeHtml(o.id)}">Editar</button>
       </div>
     </article>
-  ` : `<article class="list-item"><strong>${escapeHtml(o.title)}</strong><p>${escapeHtml(o.description || "")}</p><small>${escapeHtml(o.status || "active")} - ${escapeHtml(o.priority || "media")}</small></article>`;
+  `;
 }
 
 function renderObjectivesModule(mode) {
@@ -1143,56 +1226,104 @@ function renderObjectivesModule(mode) {
       </div>
     `;
   }).join("");
+  const addBlock = mode !== "estudiante" ? (
+    state.objectiveFormOpen ? `
+        <form class="mini-form objective-add-form" data-form="objective">
+          <input name="title" placeholder="¿Qué quieres lograr?" required />
+          <textarea name="description" placeholder="Una nota breve (opcional)"></textarea>
+          <label class="field-mini">Área
+            <select name="component"><option value="Tecnica">Técnica</option><option value="Teoria">Teoría</option><option value="Repertorio">Repertorio</option><option value="Creatividad">Creatividad</option><option value="Habitos">Hábitos</option></select>
+          </label>
+          <div class="inline-actions">
+            <button class="btn primary" type="submit">Guardar objetivo</button>
+            <button class="btn ghost" type="button" data-action="toggle-objective-form">Cancelar</button>
+          </div>
+        </form>
+      ` : `
+        <button class="btn secondary full" data-action="toggle-objective-form">+ Agregar un objetivo</button>
+      `
+  ) : "";
   return `
     <section class="card module">
       <div class="section-header"><h3>Objetivos</h3><span class="badge">${objectives.length}</span></div>
       ${groupsHtml}
-      ${mode !== "estudiante" ? `
-        <form class="mini-form" data-form="objective">
-          <input name="title" placeholder="Nuevo objetivo" required />
-          <textarea name="description" placeholder="Descripcion breve"></textarea>
-          <select name="component"><option>Tecnica</option><option>Teoria</option><option>Repertorio</option><option>Creatividad</option><option>Habitos</option></select>
-          <button class="btn primary" type="submit">Agregar objetivo</button>
-        </form>
-      ` : ""}
+      ${addBlock}
     </section>
+  `;
+}
+
+const SONG_STATUS_LABELS = {
+  requested: "Pedida",
+  approved: "Aprobada",
+  in_progress: "En montaje",
+  learned: "Aprendida",
+  archived: "Guardada",
+};
+function songStatusLabel(status) {
+  return SONG_STATUS_LABELS[status] || "Pedida";
+}
+// Mapa de estado de canción a las clases de chip de objetivos (reutilizamos colores).
+function songStatusChipClass(status) {
+  if (status === "learned") return "achieved";
+  if (status === "in_progress" || status === "approved") return "in_progress";
+  if (status === "archived") return "archived";
+  return "active";
+}
+
+function renderSongCard(s, mode) {
+  // Edición (docente/admin) de ESTA canción.
+  if (mode !== "estudiante" && state.editingSongId === s.id) {
+    return `
+      <article class="list-item editable-item" data-song-id="${escapeHtml(s.id)}">
+        <input name="songName" value="${escapeHtml(s.songName)}" placeholder="Canción" />
+        <input name="artist" value="${escapeHtml(s.artist || "")}" placeholder="Artista" />
+        <textarea name="reason" placeholder="Motivo o interés">${escapeHtml(s.reason || "")}</textarea>
+        <label class="field-mini">¿Cómo va?<select name="status">${optionList(["requested", "approved", "in_progress", "learned", "archived"], s.status || "requested")}</select></label>
+        <div class="inline-actions">
+          <button class="btn tiny" data-action="save-song" data-id="${escapeHtml(s.id)}">Guardar</button>
+          <button class="btn tiny ghost" data-action="cancel-edit-song">Cancelar</button>
+          <button class="btn tiny ghost" data-action="delete-song" data-id="${escapeHtml(s.id)}">Quitar</button>
+        </div>
+      </article>
+    `;
+  }
+  const statusClass = songStatusChipClass(s.status);
+  return `
+    <article class="objective-row status-${statusClass}">
+      <div class="objective-row-main">
+        <strong>${escapeHtml(s.songName)}</strong>
+        <p>${escapeHtml(s.artist || "Artista por definir")}${s.reason ? ` · ${escapeHtml(s.reason)}` : ""}</p>
+      </div>
+      <div class="objective-row-meta">
+        <span class="chip chip-${statusClass}">${escapeHtml(songStatusLabel(s.status))}</span>
+        ${mode !== "estudiante" ? `<button class="btn tiny ghost" data-action="edit-song" data-id="${escapeHtml(s.id)}">Editar</button>` : ""}
+      </div>
+    </article>
   `;
 }
 
 function renderSongsModule(mode) {
   const { songs } = state.bundle;
+  const addBlock = state.songFormOpen ? `
+        <form class="mini-form objective-add-form" data-form="song">
+          <input name="songName" placeholder="Canción" required />
+          <input name="artist" placeholder="Artista" />
+          <textarea name="reason" placeholder="¿Por qué quieres aprenderla?"></textarea>
+          <div class="inline-actions">
+            <button class="btn primary" type="submit">Guardar canción</button>
+            <button class="btn ghost" type="button" data-action="toggle-song-form">Cancelar</button>
+          </div>
+        </form>
+      ` : `
+        <button class="btn secondary full" data-action="toggle-song-form">+ Agregar una canción</button>
+      `;
   return `
     <section class="card module">
       <div class="section-header"><h3>Canciones deseadas</h3><span class="badge">${songs.length}</span></div>
       <div class="stack-list">
-        ${songs.map((s) => mode !== "estudiante" ? `
-          <article class="list-item editable-item" data-song-id="${escapeHtml(s.id)}">
-            <input name="songName" value="${escapeHtml(s.songName)}" placeholder="Cancion" />
-            <input name="artist" value="${escapeHtml(s.artist || "")}" placeholder="Artista" />
-            <textarea name="reason" placeholder="Motivo o interes">${escapeHtml(s.reason || "")}</textarea>
-            <div class="edit-row">
-              <select name="status">${optionList(["requested", "approved", "in_progress", "learned", "archived"], s.status || "requested")}</select>
-            </div>
-            <div class="inline-actions">
-              <button class="btn tiny" data-action="save-song" data-id="${escapeHtml(s.id)}">Guardar</button>
-              <button class="btn tiny ghost" data-action="advance-song" data-id="${escapeHtml(s.id)}" data-status="${escapeHtml(s.status || "requested")}">Avanzar estado</button>
-              <button class="btn tiny ghost" data-action="delete-song" data-id="${escapeHtml(s.id)}">Eliminar</button>
-            </div>
-          </article>
-        ` : `
-          <article class="list-item">
-            <strong>${escapeHtml(s.songName)}</strong>
-            <p>${escapeHtml(s.artist || "Artista no registrado")} - ${escapeHtml(s.reason || "")}</p>
-            <small>${escapeHtml(s.status || "requested")}</small>
-          </article>
-        `).join("") || `<p class="empty">Todavia no hay canciones solicitadas.</p>`}
+        ${songs.map((s) => renderSongCard(s, mode)).join("") || `<p class="empty">Aún no has pedido canciones. ¿Cuál te gustaría aprender?</p>`}
       </div>
-      <form class="mini-form" data-form="song">
-        <input name="songName" placeholder="Cancion" required />
-        <input name="artist" placeholder="Artista" />
-        <textarea name="reason" placeholder="Por que quieres aprenderla"></textarea>
-        <button class="btn primary" type="submit">Agregar cancion</button>
-      </form>
+      ${addBlock}
     </section>
   `;
 }
@@ -1223,7 +1354,7 @@ function renderNextQuestionsModule(mode) {
               </div>
             `}
           </article>
-        `).join("") || `<p class="empty">Sin preguntas pendientes.</p>`}
+        `).join("") || `<p class="empty">No tienes preguntas guardadas para tu profe.</p>`}
       </div>
       ${mode === "estudiante" && pending.length < 3 ? `
         <form class="mini-form" data-form="next-question">
@@ -1241,7 +1372,7 @@ function renderSessionsModule(mode) {
   const route = getRouteForInstrument(state.bundle.student.instrument);
   return `
     <section class="card module wide" id="sessionsModule">
-      <div class="section-header"><h3>Bitacoras de sesiones</h3><span class="badge">${sessions.length}</span></div>
+      <div class="section-header"><h3>${mode === "estudiante" ? "Mis sesiones" : "Bitácoras de sesiones"}</h3><span class="badge">${sessions.length}</span></div>
       <div class="timeline">
         ${sessions.slice(0, 8).map((s) => {
           const hasEvaluation = state.bundle.evaluations.some((e) => e.sessionId === s.id);
@@ -1261,7 +1392,7 @@ function renderSessionsModule(mode) {
               ${workedRoute.length ? `<p><b>Puntos de ruta:</b> ${escapeHtml(workedRoute.join(", "))}</p>` : ""}
             </details>` : "";
           return `<article class="timeline-item"><small>${formatDate(s.date)} - ${escapeHtml(s.type || "Sesion")}</small><strong>${escapeHtml(s.summary || "Sesion registrada")}</strong><p>${escapeHtml(s.nextPractice || s.practiceRecommendations || "")}</p><span class="badge">Avance ${escapeHtml(s.progressScore || 0)}/100</span>${fullDetail}${mode === "estudiante" ? `<button class="btn tiny ${hasEvaluation ? "ghost" : ""}" data-action="select-evaluation-session" data-id="${escapeHtml(s.id)}">${hasEvaluation ? "Autoevaluacion enviada" : "Hacer autoevaluacion"}</button>` : ""}</article>`;
-        }).join("") || `<p class="empty">Sin sesiones registradas.</p>`}
+        }).join("") || `<p class="empty">Aún no hay sesiones registradas en tu proceso.</p>`}
       </div>
       ${mode !== "estudiante" ? `
         <form class="form-grid" data-form="session">
@@ -1295,7 +1426,7 @@ function renderDiagnosticsModule(mode) {
           d.repertoire ? `<p><b>Repertorio:</b> ${escapeHtml(d.repertoire)}</p>` : "",
         ].filter(Boolean).join("");
         return `<article class="diagnostic-summary"><strong>${formatDate(d.date || d.createdAt)}</strong><p><b>Fortalezas:</b> ${escapeHtml(d.strengths || "")}</p><p><b>Retos:</b> ${escapeHtml(d.challenges || "")}</p><p><b>Recomendación:</b> ${escapeHtml(d.recommendation || "")}</p>${extra ? `<details class="history-details"><summary>Ver diagnóstico completo</summary>${extra}</details>` : ""}</article>`;
-      })() : `<p class="empty">Primera sesión sin diagnóstico. El caos sonríe.</p>`}
+      })() : `<p class="empty">Aún no hay un diagnóstico inicial. Será el punto de partida del proceso.</p>`}
       ${mode !== "estudiante" ? (state.diagnosticFormOpen ? `
         <form class="form-grid" data-form="diagnostic">
           <label>Fecha <input type="date" name="date" value="${new Date().toISOString().slice(0, 10)}" /></label>
@@ -1323,9 +1454,9 @@ function renderSelfEvaluationModule(mode) {
   const selectedSessionId = state.selectedEvaluationSessionId || sessions[0]?.id || "";
   return `
     <section class="card module">
-      <div class="section-header"><h3>Autoevaluacion post-sesion</h3><span class="badge">${evaluations.length}</span></div>
+      <div class="section-header"><h3>¿Cómo me sentí al practicar?</h3><span class="badge">${evaluations.length}</span></div>
       <div class="stack-list">
-        ${evaluations.slice(0, 4).map((e) => `<article class="list-item"><strong>${escapeHtml(e.feeling || e.mood || "Sesion")}</strong><p>${escapeHtml(e.whatWentWell || e.learned || "")}</p><small>Sesion ${escapeHtml(e.sessionId || "sin vincular")} - Energia ${escapeHtml(e.energyLevel || e.energy || 3)}/5 - Dificultad ${escapeHtml(e.difficultyLevel || e.difficulty || 3)}/5</small></article>`).join("") || `<p class="empty">Sin autoevaluaciones registradas.</p>`}
+        ${evaluations.slice(0, 4).map((e) => `<article class="list-item"><strong>${escapeHtml(e.feeling || e.mood || "Mi sesión")}</strong><p>${escapeHtml(e.whatWentWell || e.learned || "")}</p><small>Energía ${escapeHtml(e.energyLevel || e.energy || 3)}/5 · Dificultad ${escapeHtml(e.difficultyLevel || e.difficulty || 3)}/5</small></article>`).join("") || `<p class="empty">Todavía no has registrado cómo te sentiste. Cuéntanos después de practicar.</p>`}
       </div>
       ${mode === "estudiante" ? `
         <form class="mini-form" data-form="self-evaluation">
@@ -1355,7 +1486,7 @@ function renderMonthlyReportModule(mode) {
         </div>
       ` : ""}
       <div class="stack-list">
-        ${reports.slice(0, 3).map((r) => `<article class="report-card"><strong>${escapeHtml(r.month)}</strong><pre>${escapeHtml(r.generatedText || "")}</pre></article>`).join("") || `<p class="empty">No hay informes generados.</p>`}
+        ${reports.slice(0, 3).map((r) => `<article class="report-card"><strong>${escapeHtml(r.month)}</strong><pre>${escapeHtml(r.generatedText || "")}</pre></article>`).join("") || `<p class="empty">Aún no hay informes de tu proceso.</p>`}
       </div>
     </section>
   `;
@@ -1506,14 +1637,26 @@ async function handleSubmit(event) {
     }
 
     if (type === "student-config") {
+      const newOverride = safeText(data.emailOverride).toLowerCase();
       await updateStudent(data.studentId, {
         isMusiGym: data.isMusiGym === "true",
         art: data.art,
         instrument: data.instrument,
         emphasis: data.emphasis,
         level: data.level,
+        emailOverride: newOverride,
       });
-      setMessage("Configuración guardada.");
+      // Re-estampa el correo de acceso en todo el proceso del estudiante para
+      // que pueda leer su historial (rutinas, bitácoras, ruta, etc.) sin get().
+      // Cubre backfill de datos antiguos y cambios de correo de acceso.
+      const accessEmail = newOverride || safeText(student.email).toLowerCase();
+      try {
+        const { total, updated } = await restampStudentAccessEmail(data.studentId, accessEmail);
+        setMessage(`Configuración guardada. Proceso del estudiante: ${total} registro(s), ${updated} actualizado(s) al correo de acceso.`);
+      } catch (err) {
+        console.warn("No se pudo re-estampar el acceso del estudiante", err);
+        setMessage("Configuración guardada, pero no se pudo sincronizar el acceso al historial. Revisa las reglas.");
+      }
       await refreshSelected();
     }
 
@@ -1534,13 +1677,14 @@ async function handleSubmit(event) {
     }
 
     if (type === "objective") {
-      await createObjective({ ...data, studentId: student.id, art: student.art, instrument: student.instrument, createdBy: state.profile.email });
+      await createObjective({ ...data, studentId: student.id, studentEmail: studentAccessEmail(student), art: student.art, instrument: student.instrument, createdBy: state.profile.email });
+      state.objectiveFormOpen = false;
       setMessage("Objetivo creado.");
       await openStudent(student.id);
     }
 
     if (type === "diagnostic") {
-      await saveDiagnostic({ ...data, studentId: student.id, evaluatorEmail: state.profile.email, art: student.art, instrument: student.instrument });
+      await saveDiagnostic({ ...data, studentId: student.id, studentEmail: studentAccessEmail(student), evaluatorEmail: state.profile.email, art: student.art, instrument: student.instrument });
       state.diagnosticFormOpen = false;
       setMessage("Diagnóstico guardado.");
       await openStudent(student.id);
@@ -1550,20 +1694,21 @@ async function handleSubmit(event) {
       const selectedObjectives = [...form.querySelector('select[name="objectivesWorked"]').selectedOptions].map((o) => o.value);
       const routeSelect = form.querySelector('select[name="routeItemsWorked"]');
       const selectedRouteItems = routeSelect ? [...routeSelect.selectedOptions].map((o) => o.value) : [];
-      await saveSession({ ...data, studentId: student.id, teacherEmail: state.profile.email, objectivesWorked: selectedObjectives, routeItemsWorked: selectedRouteItems, instrument: student.instrument });
+      await saveSession({ ...data, studentId: student.id, studentEmail: studentAccessEmail(student), teacherEmail: state.profile.email, objectivesWorked: selectedObjectives, routeItemsWorked: selectedRouteItems, instrument: student.instrument });
       setMessage("Bitacora de sesion guardada.");
       await openStudent(student.id);
     }
 
     if (type === "self-evaluation") {
-      await saveSelfEvaluation({ ...data, studentId: student.id });
+      await saveSelfEvaluation({ ...data, studentId: student.id, studentEmail: studentAccessEmail(student) });
       setMessage("Autoevaluación guardada.");
       await openStudent(student.id);
     }
 
     if (type === "song") {
-      await saveSongRequest({ ...data, studentId: student.id });
-      setMessage("Cancion agregada.");
+      await saveSongRequest({ ...data, studentId: student.id, studentEmail: studentAccessEmail(student) });
+      state.songFormOpen = false;
+      setMessage("Canción agregada.");
       await openStudent(student.id);
     }
 
@@ -1622,6 +1767,26 @@ async function handleClick(event) {
 
     if (action === "select-student") await openStudent(btn.dataset.id);
 
+    if (action === "toggle-all-students") {
+      state.showAllStudents = !state.showAllStudents;
+      render();
+    }
+
+    if (action === "toggle-objective-form") {
+      state.objectiveFormOpen = !state.objectiveFormOpen;
+      render();
+    }
+
+    if (action === "edit-objective") {
+      state.editingObjectiveId = btn.dataset.id;
+      render();
+    }
+
+    if (action === "cancel-edit-objective") {
+      state.editingObjectiveId = "";
+      render();
+    }
+
     if (action === "save-objective") {
       const card = btn.closest("[data-objective-id]");
       await updateObjective(btn.dataset.id, {
@@ -1631,15 +1796,32 @@ async function handleClick(event) {
         status: card.querySelector('[name="status"]')?.value || "active",
         priority: card.querySelector('[name="priority"]')?.value || "media",
       });
-      setMessage("Objetivo actualizado.");
+      state.editingObjectiveId = "";
+      setMessage("Objetivo guardado.");
       await openStudent(state.bundle.student.id);
     }
 
     if (action === "delete-objective") {
-      if (!confirm("¿Eliminar este objetivo?")) return;
+      if (!confirm("¿Quitar este objetivo?")) return;
       await deleteObjective(btn.dataset.id);
-      setMessage("Objetivo eliminado.");
+      state.editingObjectiveId = "";
+      setMessage("Objetivo quitado.");
       await openStudent(state.bundle.student.id);
+    }
+
+    if (action === "toggle-song-form") {
+      state.songFormOpen = !state.songFormOpen;
+      render();
+    }
+
+    if (action === "edit-song") {
+      state.editingSongId = btn.dataset.id;
+      render();
+    }
+
+    if (action === "cancel-edit-song") {
+      state.editingSongId = "";
+      render();
     }
 
     if (action === "save-song") {
@@ -1650,14 +1832,16 @@ async function handleClick(event) {
         reason: card.querySelector('[name="reason"]')?.value || "",
         status: card.querySelector('[name="status"]')?.value || "requested",
       });
-      setMessage("Cancion actualizada.");
+      state.editingSongId = "";
+      setMessage("Canción guardada.");
       await openStudent(state.bundle.student.id);
     }
 
     if (action === "delete-song") {
-      if (!confirm("¿Eliminar esta canción?")) return;
+      if (!confirm("¿Quitar esta canción?")) return;
       await deleteSongRequest(btn.dataset.id);
-      setMessage("Cancion eliminada.");
+      state.editingSongId = "";
+      setMessage("Canción quitada.");
       await openStudent(state.bundle.student.id);
     }
 
@@ -1911,7 +2095,7 @@ async function handleChange(event) {
   if (action === "route-status") {
     const item = getRouteForInstrument(state.bundle.student.instrument).find((routeItem) => routeItem.id === el.dataset.id);
     if (!item) return;
-    await setRouteItemProgress(state.bundle.student.id, item, el.value);
+    await setRouteItemProgress(state.bundle.student.id, item, el.value, "", studentAccessEmail(state.bundle.student));
     setMessage("Ruta actualizada.");
     await openStudent(state.bundle.student.id);
   }

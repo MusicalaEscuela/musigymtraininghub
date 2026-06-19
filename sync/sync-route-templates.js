@@ -19,22 +19,17 @@
  */
 
 const path = require("path");
-const admin = require("firebase-admin");
+const { initializeApp, cert } = require("firebase-admin/app");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 
 const bitacorasKey = require(path.join(__dirname, "serviceAccount.bitacoras.json"));
 const musigymKey = require(path.join(__dirname, "serviceAccount.musigym.json"));
 
-const bitacorasApp = admin.initializeApp(
-  { credential: admin.credential.cert(bitacorasKey) },
-  "bitacoras"
-);
-const musigymApp = admin.initializeApp(
-  { credential: admin.credential.cert(musigymKey) },
-  "musigym"
-);
+const bitacorasApp = initializeApp({ credential: cert(bitacorasKey) }, "bitacoras");
+const musigymApp = initializeApp({ credential: cert(musigymKey) }, "musigym");
 
-const srcDb = bitacorasApp.firestore();
-const dstDb = musigymApp.firestore();
+const srcDb = getFirestore(bitacorasApp);
+const dstDb = getFirestore(musigymApp);
 
 const SOURCE_COLLECTION = "route_templates";
 const TARGET_COLLECTION = "musigym_route_templates";
@@ -103,7 +98,7 @@ async function run() {
         routeName: (data.routeName || "").toString(),
         sourceTemplateId: docSnap.id,
         items,
-        syncedAt: admin.firestore.FieldValue.serverTimestamp(),
+        syncedAt: FieldValue.serverTimestamp(),
       },
       { merge: true }
     );

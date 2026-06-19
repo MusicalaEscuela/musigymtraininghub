@@ -50,7 +50,20 @@ service cloud.firestore {
     function ownsStudent(studentId) {
       return signedIn()
         && exists(/databases/$(database)/documents/musigym_students/$(studentId))
-        && get(/databases/$(database)/documents/musigym_students/$(studentId)).data.email == email();
+        && (
+          // El correo base (de Sheets) o el correo de acceso corregido desde
+          // el front (emailOverride) habilitan al estudiante como dueño de su ficha.
+          get(/databases/$(database)/documents/musigym_students/$(studentId)).data.email == email()
+          || get(/databases/$(database)/documents/musigym_students/$(studentId)).data.get("emailOverride", "") == email()
+        );
+    }
+
+    // Pertenencia SIN get(): compara el correo de acceso "estampado" en el
+    // propio documento (studentEmail) contra el correo del usuario. Esto SÍ
+    // funciona en consultas de lista (a diferencia de ownsStudent, que usa get()
+    // y las rompe). 'data' es resource.data (lectura) o request.resource.data (escritura).
+    function ownsRow(data) {
+      return signedIn() && data.get("studentEmail", "") != "" && data.get("studentEmail", "") == email();
     }
 
     function teachesStudent(studentId) {
@@ -84,34 +97,44 @@ service cloud.firestore {
     }
 
     match /musigym_students/{studentId} {
-      allow read: if signedIn() && (isAdmin() || teachesStudent(studentId) || ownsStudent(studentId));
+      // IMPORTANTE: la lectura usa resource.data (el propio documento) y NO get(),
+      // porque get() por documento rompe las CONSULTAS de lista en Firestore
+      // (mismo motivo por el que teachesStudent dejó de usar get()).
+      // findStudentByEmail busca la ficha con una consulta where(email/emailOverride),
+      // así que esta regla debe ser evaluable sin get().
+      allow read: if signedIn() && (
+        isAdmin()
+        || isTeacher()
+        || resource.data.email == email()
+        || resource.data.get("emailOverride", "") == email()
+      );
       allow create, update, delete: if isAdmin();
     }
 
     match /musigym_objectives/{docId} {
-      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow read: if signedIn() && (isAdmin() || isTeacher() || ownsRow(resource.data));
       allow create, update, delete: if signedIn() && (isAdmin() || teachesStudent(request.resource.data.studentId));
     }
 
     match /musigym_routines/{docId} {
-      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow read: if signedIn() && (isAdmin() || isTeacher() || ownsRow(resource.data));
       allow create, update, delete: if signedIn() && (isAdmin() || teachesStudent(request.resource.data.studentId));
     }
 
     match /musigym_sessions/{docId} {
-      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow read: if signedIn() && (isAdmin() || isTeacher() || ownsRow(resource.data));
       allow create, update, delete: if signedIn() && (isAdmin() || teachesStudent(request.resource.data.studentId));
     }
 
     match /musigym_diagnostics/{docId} {
-      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow read: if signedIn() && (isAdmin() || isTeacher() || ownsRow(resource.data));
       allow create, update, delete: if signedIn() && (isAdmin() || teachesStudent(request.resource.data.studentId));
     }
 
     match /musigym_self_evaluations/{docId} {
-      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
-      allow create: if signedIn() && (isAdmin() || ownsStudent(request.resource.data.studentId) || teachesStudent(request.resource.data.studentId));
-      allow update, delete: if isAdmin() || ownsStudent(resource.data.studentId);
+      allow read: if signedIn() && (isAdmin() || isTeacher() || ownsRow(resource.data));
+      allow create: if signedIn() && (isAdmin() || ownsRow(request.resource.data) || isTeacher());
+      allow update, delete: if isAdmin() || ownsRow(resource.data);
     }
 
     match /musigym_next_questions/{studentId} {
@@ -129,9 +152,9 @@ service cloud.firestore {
     }
 
     match /musigym_song_requests/{docId} {
-      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
-      allow create: if signedIn() && (isAdmin() || ownsStudent(request.resource.data.studentId) || teachesStudent(request.resource.data.studentId));
-      allow update: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow read: if signedIn() && (isAdmin() || isTeacher() || ownsRow(resource.data));
+      allow create: if signedIn() && (isAdmin() || ownsRow(request.resource.data) || isTeacher());
+      allow update: if signedIn() && (isAdmin() || isTeacher() || ownsRow(resource.data));
       allow delete: if isAdmin();
     }
 
@@ -143,22 +166,22 @@ service cloud.firestore {
 
 
     match /musigym_coach_logs/{docId} {
-      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow read: if signedIn() && (isAdmin() || isTeacher() || ownsRow(resource.data));
       allow create: if signedIn() && (
         isAdmin()
-        || teachesStudent(request.resource.data.studentId)
-        || ownsStudent(request.resource.data.studentId)
+        || isTeacher()
+        || ownsRow(request.resource.data)
       );
       allow update, delete: if isAdmin();
     }
 
     match /musigym_route_progress/{docId} {
-      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow read: if signedIn() && (isAdmin() || isTeacher() || ownsRow(resource.data));
       allow create, update, delete: if signedIn() && (isAdmin() || teachesStudent(request.resource.data.studentId));
     }
 
     match /musigym_monthly_reports/{docId} {
-      allow read: if signedIn() && (isAdmin() || teachesStudent(resource.data.studentId) || ownsStudent(resource.data.studentId));
+      allow read: if signedIn() && (isAdmin() || isTeacher() || ownsRow(resource.data));
       allow create, update, delete: if signedIn() && (isAdmin() || teachesStudent(request.resource.data.studentId));
     }
 

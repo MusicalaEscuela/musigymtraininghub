@@ -48,6 +48,17 @@ function nowStamp() {
   return serverTimestamp();
 }
 
+// Correo FINAL autorizado del estudiante: el override editado desde el front
+// (si existe) tiene prioridad sobre el correo base de Sheets. Este es el correo
+// con el que el estudiante inicia sesión y el que se "estampa" como
+// studentEmail en cada documento de su proceso, para que las reglas puedan
+// autorizar la lectura comparando resource.data.studentEmail == email() SIN
+// usar get() (que rompe las consultas de lista en Firestore).
+export function studentAccessEmail(student) {
+  if (!student) return "";
+  return safeText(student.emailOverride || student.email).toLowerCase();
+}
+
 function normalizeStudentFromScript(raw = {}) {
   const name = safeText(raw.nombre || raw.name || raw.estudiante || raw.Nombre);
   const email = safeText(raw.email || raw.correo || raw.correoElectronico || raw.Email).toLowerCase();
@@ -92,32 +103,42 @@ export async function fetchStudentsFromAppsScript() {
 
 export async function syncStudentsFromScript() {
   const students = await fetchStudentsFromAppsScript();
-  const batch = writeBatch(db);
   const existingSnaps = await getDocs(collection(db, C.students));
   const existing = new Map(existingSnaps.docs.map((d) => [d.id, d.data()]));
 
-  students.forEach((student) => {
-    const ref = doc(db, C.students, student.id);
-    const previous = existing.get(student.id) || {};
-    batch.set(
-      ref,
-      {
-        ...student,
-        isMusiGym: previous.isMusiGym ?? false,
-        art: previous.art || student.art,
-        instrument: previous.instrument || student.instrument,
-        emphasis: previous.emphasis || student.emphasis,
-        level: previous.level || student.level,
-        teacherEmail: previous.teacherEmail || "",
-        activeRoutineId: previous.activeRoutineId || "",
-        updatedAt: nowStamp(),
-        createdAt: previous.createdAt || nowStamp(),
-      },
-      { merge: true }
-    );
-  });
+  // Firestore limita cada writeBatch a 500 operaciones. Con cientos/miles de
+  // estudiantes hay que dividir las escrituras en lotes.
+  const CHUNK = 450;
+  for (let i = 0; i < students.length; i += CHUNK) {
+    const slice = students.slice(i, i + CHUNK);
+    const batch = writeBatch(db);
+    slice.forEach((student) => {
+      const ref = doc(db, C.students, student.id);
+      const previous = existing.get(student.id) || {};
+      batch.set(
+        ref,
+        {
+          ...student,
+          // 'email' siempre refleja el dato base de Sheets. Para corregir el
+          // correo de acceso sin tocar Sheets, el admin usa 'emailOverride',
+          // que la sincronización NUNCA sobreescribe (capa editable desde el front).
+          emailOverride: previous.emailOverride || "",
+          isMusiGym: previous.isMusiGym ?? false,
+          art: previous.art || student.art,
+          instrument: previous.instrument || student.instrument,
+          emphasis: previous.emphasis || student.emphasis,
+          level: previous.level || student.level,
+          teacherEmail: previous.teacherEmail || "",
+          activeRoutineId: previous.activeRoutineId || "",
+          updatedAt: nowStamp(),
+          createdAt: previous.createdAt || nowStamp(),
+        },
+        { merge: true }
+      );
+    });
+    await batch.commit();
+  }
 
-  await batch.commit();
   return students;
 }
 
@@ -173,19 +194,65 @@ export async function updateStudent(id, patch) {
   );
 }
 
+// Re-estampa el correo de acceso (studentEmail) en TODOS los documentos del
+// proceso de un estudiante. Sirve para:
+//  1) Rellenar documentos antiguos que aún no tienen studentEmail (backfill).
+//  2) Actualizar el correo cuando el admin cambia el emailOverride.
+// Solo el admin puede ejecutarla (lee/escribe todas las colecciones del proceso).
+export async function restampStudentAccessEmail(studentId, accessEmail) {
+  const email = safeText(accessEmail).toLowerCase();
+  if (!studentId) return 0;
+  const cols = [
+    C.objectives, C.routines, C.sessions, C.diagnostics, C.selfEvaluations,
+    C.songRequests, C.routeProgress, C.monthlyReports, C.coachLogs,
+  ];
+  let updated = 0;
+  let total = 0;
+  for (const col of cols) {
+    const snap = await getDocs(query(collection(db, col), where("studentId", "==", studentId)));
+    total += snap.docs.length;
+    const docs = snap.docs.filter((d) => safeText(d.data().studentEmail).toLowerCase() !== email);
+    for (let i = 0; i < docs.length; i += 450) {
+      const batch = writeBatch(db);
+      docs.slice(i, i + 450).forEach((d) => {
+        batch.set(doc(db, col, d.id), { studentEmail: email, updatedAt: nowStamp() }, { merge: true });
+      });
+      await batch.commit();
+      updated += Math.min(450, docs.length - i);
+    }
+  }
+  return { total, updated };
+}
+
 export async function findStudentByEmail(email) {
   const clean = safeText(email).toLowerCase();
   if (!clean) return null;
-  const snap = await getDocs(query(collection(db, C.students), where("email", "==", clean), limit(1)));
-  if (!snap.empty) {
+
+  // 1) Correo de acceso corregido desde el front (tiene prioridad).
+  const overrideSnap = await getDocs(
+    query(collection(db, C.students), where("emailOverride", "==", clean), limit(1))
+  ).catch(() => null);
+  if (overrideSnap && !overrideSnap.empty) {
+    const d = overrideSnap.docs[0];
+    return { id: d.id, ...d.data() };
+  }
+
+  // 2) Correo base proveniente de Sheets.
+  const snap = await getDocs(
+    query(collection(db, C.students), where("email", "==", clean), limit(1))
+  ).catch(() => null);
+  if (snap && !snap.empty) {
     const d = snap.docs[0];
     return { id: d.id, ...d.data() };
   }
 
-  const allSnap = await getDocs(collection(db, C.students));
+  // 3) Respaldo (solo admin/docente puede leer toda la colección): busca en
+  // campos alternativos por si el dato vino con otra clave desde Sheets.
+  const allSnap = await getDocs(collection(db, C.students)).catch(() => null);
+  if (!allSnap) return null;
   const match = allSnap.docs.find((d) => {
     const data = d.data();
-    const candidates = [data.email, data.correo, data.correoElectronico, data.Email]
+    const candidates = [data.emailOverride, data.email, data.correo, data.correoElectronico, data.Email]
       .map((value) => safeText(value).toLowerCase())
       .filter(Boolean);
     return candidates.includes(clean);
@@ -198,14 +265,33 @@ export async function getStudent(id) {
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
 
-export async function listByStudent(collectionName, studentId, orderField = "createdAt", direction = "desc") {
-  const snap = await getDocs(query(collection(db, collectionName), where("studentId", "==", studentId)));
-  const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+function sortByField(items, orderField, direction) {
   return items.sort((a, b) => {
     const av = a[orderField]?.toMillis ? a[orderField].toMillis() : new Date(a[orderField] || 0).getTime();
     const bv = b[orderField]?.toMillis ? b[orderField].toMillis() : new Date(b[orderField] || 0).getTime();
     return direction === "asc" ? av - bv : bv - av;
   });
+}
+
+export async function listByStudent(collectionName, studentId, orderField = "createdAt", direction = "desc") {
+  const snap = await getDocs(query(collection(db, collectionName), where("studentId", "==", studentId)));
+  const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return sortByField(items, orderField, direction);
+}
+
+// Consulta el proceso filtrando por studentEmail (el correo de acceso estampado).
+// IMPORTANTE: el ESTUDIANTE debe usar esta variante (no listByStudent), porque
+// en Firestore "las reglas no son filtros": para que una consulta de lista sea
+// aceptada, debe filtrar por el MISMO campo que evalúa la regla. La regla del
+// estudiante usa resource.data.studentEmail == email(), así que la consulta
+// también debe filtrar where("studentEmail","==", suCorreo). Admin/docente
+// siguen usando listByStudent (su acceso es global y no requiere este filtro).
+export async function listByStudentEmail(collectionName, email, orderField = "createdAt", direction = "desc") {
+  const clean = safeText(email).toLowerCase();
+  if (!clean) return [];
+  const snap = await getDocs(query(collection(db, collectionName), where("studentEmail", "==", clean)));
+  const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return sortByField(items, orderField, direction);
 }
 
 export function observeTeacherCalls(callback) {
@@ -248,6 +334,7 @@ export async function resolveTeacherCall(id, resolvedBy = "") {
 export async function createObjective(data) {
   return addDoc(collection(db, C.objectives), {
     studentId: data.studentId,
+    studentEmail: safeText(data.studentEmail).toLowerCase(),
     title: safeText(data.title),
     description: safeText(data.description),
     art: safeText(data.art),
@@ -279,6 +366,7 @@ export async function deleteObjective(id) {
 export async function saveDiagnostic(data) {
   return addDoc(collection(db, C.diagnostics), {
     studentId: data.studentId,
+    studentEmail: safeText(data.studentEmail).toLowerCase(),
     evaluatorEmail: data.evaluatorEmail || "",
     date: data.date ? Timestamp.fromDate(new Date(data.date)) : nowStamp(),
     art: safeText(data.art),
@@ -299,6 +387,7 @@ export async function saveDiagnostic(data) {
 export async function saveSession(data) {
   const sessionRef = await addDoc(collection(db, C.sessions), {
     studentId: data.studentId,
+    studentEmail: safeText(data.studentEmail).toLowerCase(),
     teacherEmail: data.teacherEmail || "",
     date: data.date ? Timestamp.fromDate(new Date(data.date)) : nowStamp(),
     type: safeText(data.type) || "Práctica guiada",
@@ -316,7 +405,7 @@ export async function saveSession(data) {
   const routeItemsWorked = data.routeItemsWorked || [];
   for (const itemId of routeItemsWorked) {
     const item = getRouteForInstrument(data.instrument || "").find((routeItem) => routeItem.id === itemId);
-    if (item) await setRouteItemProgress(data.studentId, item, "in_progress", "Trabajado en sesión.");
+    if (item) await setRouteItemProgress(data.studentId, item, "in_progress", "Trabajado en sesión.", data.studentEmail);
   }
   return sessionRef;
 }
@@ -324,6 +413,7 @@ export async function saveSession(data) {
 export async function saveSelfEvaluation(data) {
   return addDoc(collection(db, C.selfEvaluations), {
     studentId: data.studentId,
+    studentEmail: safeText(data.studentEmail).toLowerCase(),
     sessionId: data.sessionId || "",
     feeling: safeText(data.feeling || data.mood),
     energyLevel: Number(data.energyLevel || data.energy || 3),
@@ -384,6 +474,7 @@ export async function updateNextQuestionStatus(studentId, questionId, status) {
 export async function saveSongRequest(data) {
   return addDoc(collection(db, C.songRequests), {
     studentId: data.studentId,
+    studentEmail: safeText(data.studentEmail).toLowerCase(),
     songName: safeText(data.songName),
     artist: safeText(data.artist),
     reason: safeText(data.reason),
@@ -455,12 +546,21 @@ export async function listRouteProgress(studentId) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
-export async function setRouteItemProgress(studentId, item, status, note = "") {
+// Variante por correo de acceso para el estudiante (ver nota en listByStudentEmail).
+export async function listRouteProgressByEmail(email) {
+  const clean = safeText(email).toLowerCase();
+  if (!clean) return [];
+  const snap = await getDocs(query(collection(db, C.routeProgress), where("studentEmail", "==", clean)));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+export async function setRouteItemProgress(studentId, item, status, note = "", studentEmail = "") {
   const id = `${studentId}_${item.id}`;
   await setDoc(
     doc(db, C.routeProgress, id),
     {
       studentId,
+      studentEmail: safeText(studentEmail).toLowerCase(),
       routeItemId: item.id,
       title: item.title,
       component: item.component,
@@ -648,6 +748,7 @@ export function buildRoutineFromTemplate(student, template, objectives = [], pro
 export async function saveGeneratedRoutine(student, routine, createdBy = "") {
   const ref = await addDoc(collection(db, C.routines), {
     studentId: student.id,
+    studentEmail: studentAccessEmail(student),
     title: routine.title,
     blocks: routine.blocks,
     active: true,
@@ -731,6 +832,7 @@ function coachInstrumentTips(instrument = "") {
 export async function saveCoachLog(studentId, entry = {}) {
   return addDoc(collection(db, C.coachLogs), {
     studentId,
+    studentEmail: safeText(entry.studentEmail).toLowerCase(),
     role: safeText(entry.role || "coach"),
     intent: safeText(entry.intent || "general"),
     text: safeText(entry.text),
@@ -1041,6 +1143,7 @@ export async function generateMonthlyReport(student, key = monthKey()) {
 
   const report = {
     studentId: student.id,
+    studentEmail: studentAccessEmail(student),
     studentName: student.name,
     month: key,
     sessionsCount: sessions.length,
