@@ -102,6 +102,7 @@ const state = {
   songFormOpen: false,
   editingSongId: "",
   editingSessionId: "",
+  sessionFormOpen: false,
   audioReady: false,
   audioContext: null,
   unsubscribeCalls: null,
@@ -430,6 +431,7 @@ function renderCurrentView() {
 
   if (state.profile.isAdmin && state.currentViewMode === "studentPreview" && state.selectedStudentId) return renderStudentPreview();
   if (state.profile.isAdmin && state.currentViewMode === "teacher") return renderTeacher();
+  if (state.profile.isAdmin && state.currentViewMode === "config") return renderConfig();
   if (state.profile.isAdmin) return renderAdmin();
   if (state.profile.isTeacher) return renderTeacher();
   return renderStudent();
@@ -465,15 +467,33 @@ function renderAdmin() {
         </div>
         <button class="btn primary full" data-action="sync-students">Sincronizar estudiantes desde Sheets</button>
         <button class="btn secondary full" data-action="enter-teacher-view">Ver vista docente</button>
+        <button class="btn secondary full" data-action="enter-config-view">Configuración</button>
         <button class="btn secondary full" data-action="enable-audio">${state.audioReady ? "Alarma activa" : "Activar alarma de llamados"}</button>
         ${renderMetrics()}
         ${renderCallsBox()}
       </aside>
       <section class="workspace">
         ${renderStudentList(true)}
-        ${renderRoutineTemplatesManager()}
         ${renderSelectedStudentWorkspace("admin")}
+      </section>
+    </section>
+  `;
+}
+
+function renderConfig() {
+  return `
+    <section class="dashboard-grid">
+      <aside class="side-panel">
+        <div class="panel-title">
+          <h2>Configuración</h2>
+          <p>Docentes y plantillas de rutina.</p>
+        </div>
+        <button class="btn secondary full" data-action="exit-config-view">Volver a Admin</button>
+        ${renderMetrics()}
+      </aside>
+      <section class="workspace">
         ${renderRolesManager()}
+        ${renderRoutineTemplatesManager()}
       </section>
     </section>
   `;
@@ -1429,8 +1449,8 @@ function renderSessionsModule(mode) {
           return `<article class="timeline-item"><small>${formatDate(s.date)} - ${escapeHtml(s.type || "Sesion")}</small><strong>${escapeHtml(s.summary || "Sesion registrada")}</strong><p>${escapeHtml(s.nextPractice || s.practiceRecommendations || "")}</p><span class="badge">Avance ${escapeHtml(s.progressScore || 0)}/100</span>${fullDetail}${mode === "estudiante" ? `<button class="btn tiny ${hasEvaluation ? "ghost" : ""}" data-action="select-evaluation-session" data-id="${escapeHtml(s.id)}">${hasEvaluation ? "Autoevaluacion enviada" : "Hacer autoevaluacion"}</button>` : ""}${teacherActions}</article>`;
         }).join("") || `<p class="empty">Aún no hay sesiones registradas en tu proceso.</p>`}
       </div>
-      ${mode !== "estudiante" ? `
-        <form class="form-grid" data-form="session">
+      ${mode !== "estudiante" ? (state.sessionFormOpen ? `
+        <form class="form-grid objective-add-form" data-form="session">
           <label>Fecha <input type="date" name="date" value="${new Date().toISOString().slice(0, 10)}" /></label>
           <label>Tipo <select name="type">${optionList(CATALOGS.sessionTypes, "Practica guiada")}</select></label>
           <label>Avance 0-100 <input type="number" min="0" max="100" name="progressScore" value="50" /></label>
@@ -1440,9 +1460,14 @@ function renderSessionsModule(mode) {
           <label class="span-2">Notas internas <textarea name="teacherNotes" placeholder="Observaciones para el equipo"></textarea></label>
           <label class="span-2">Objetivos trabajados <select name="objectivesWorked" multiple>${objectives.map((o) => `<option value="${escapeHtml(o.id)}">${escapeHtml(o.title)}</option>`).join("")}</select></label>
           <label class="span-2">Puntos de ruta trabajados <select name="routeItemsWorked" multiple>${route.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.component)} - ${escapeHtml(item.title)}</option>`).join("")}</select></label>
-          <button class="btn primary" type="submit">Guardar bitacora</button>
+          <div class="span-2 inline-actions">
+            <button class="btn primary" type="submit">Guardar bitácora</button>
+            <button class="btn ghost" type="button" data-action="toggle-session-form">Cancelar</button>
+          </div>
         </form>
-      ` : ""}
+      ` : `
+        <button class="btn secondary full" data-action="toggle-session-form">+ Agregar una bitácora</button>
+      `) : ""}
     </section>
   `;
 }
@@ -1730,7 +1755,8 @@ async function handleSubmit(event) {
       const routeSelect = form.querySelector('select[name="routeItemsWorked"]');
       const selectedRouteItems = routeSelect ? [...routeSelect.selectedOptions].map((o) => o.value) : [];
       await saveSession({ ...data, studentId: student.id, studentEmail: studentAccessEmail(student), teacherEmail: state.profile.email, objectivesWorked: selectedObjectives, routeItemsWorked: selectedRouteItems, instrument: student.instrument });
-      setMessage("Bitacora de sesion guardada.");
+      state.sessionFormOpen = false;
+      setMessage("Bitácora guardada.");
       await openStudent(student.id);
     }
 
@@ -1880,6 +1906,11 @@ async function handleClick(event) {
       await openStudent(state.bundle.student.id);
     }
 
+    if (action === "toggle-session-form") {
+      state.sessionFormOpen = !state.sessionFormOpen;
+      render();
+    }
+
     if (action === "edit-session") {
       state.editingSessionId = btn.dataset.id;
       render();
@@ -1979,6 +2010,18 @@ async function handleClick(event) {
     }
 
     if (action === "exit-teacher-view") {
+      state.currentViewMode = "admin";
+      render();
+      return;
+    }
+
+    if (action === "enter-config-view") {
+      state.currentViewMode = "config";
+      render();
+      return;
+    }
+
+    if (action === "exit-config-view") {
       state.currentViewMode = "admin";
       render();
       return;
