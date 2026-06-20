@@ -1594,7 +1594,7 @@ function renderLibraryModule() {
       <div class="section-header"><h3>Biblioteca de recursos</h3><span class="badge">${filtered.length}/${forStudent.length}</span></div>
       <p class="helper">Recursos de <b>${instrumentLabel}</b>${forStudent.some((r) => r.areaKey === "teoria musical") ? " y <b>teoría musical</b>" : ""}.</p>
       <div class="library-filters">
-        <input placeholder="Buscar recurso" value="${escapeHtml(q)}" data-action="library-filter" data-field="q" />
+        <input id="librarySearch" placeholder="Buscar recurso" value="${escapeHtml(q)}" data-action="library-filter" data-field="q" />
         <select data-action="library-filter" data-field="category"><option value="">Todas las áreas</option>${optionList(areas, area)}</select>
         <select data-action="library-filter" data-field="level"><option value="">Todos los tipos</option>${optionList(types, type)}</select>
       </div>
@@ -2233,6 +2233,13 @@ function handleInput(event) {
   if (el.dataset.action === "library-filter") {
     state.libraryFilter[el.dataset.field] = el.value;
     render();
+    if (el.dataset.field === "q") {
+      const input = document.getElementById("librarySearch");
+      if (input) {
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+    }
   }
 
   if (el.dataset.action === "student-search") {
