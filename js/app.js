@@ -2221,6 +2221,9 @@ async function handleChange(event) {
   }
 
   if (action === "library-filter") {
+    // El campo de texto "q" lo maneja handleInput (con restauración de foco).
+    // Aquí solo atendemos los selects de área/tipo para no robar el foco al teclear.
+    if (el.dataset.field === "q") return;
     state.libraryFilter[el.dataset.field] = el.value;
     render();
   }
