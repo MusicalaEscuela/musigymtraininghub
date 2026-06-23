@@ -1,4 +1,4 @@
-const CACHE_NAME = "musigym-musicala-v0-10-0";
+const CACHE_NAME = "musigym-musicala-v0-10-1";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -44,7 +44,9 @@ self.addEventListener("fetch", (event) => {
 
   if (isAppCode(event.request)) {
     event.respondWith(
-      fetch(event.request)
+      // cache: "no-store" => el navegador NO sirve este archivo desde su cache
+      // HTTP, asi siempre traemos la version recien publicada en GitHub Pages.
+      fetch(event.request, { cache: "no-store" })
         .then((response) => {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
