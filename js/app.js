@@ -1573,12 +1573,10 @@ function renderPrepareNextSessionModule() {
   `;
 }
 
-function renderLibraryModule() {
+function computeLibraryData() {
   const student = state.bundle?.student || {};
   // Recursos del instrumento del estudiante + (en Música) teoría musical.
   const forStudent = resourcesForStudent(state.library, student);
-  const areas = unique(forStudent.map((r) => r.area));      // p. ej. Guitarra, Teoría musical
-  const types = unique(forStudent.map((r) => r.category));  // tipo de recurso
   const q = state.libraryFilter.q;
   const area = state.libraryFilter.category;                // reusa el slot "category" para el área
   const type = state.libraryFilter.level;                   // reusa el slot "level" para el tipo
@@ -1589,6 +1587,39 @@ function renderLibraryModule() {
       && (!type || r.category === type);
   });
   const instrumentLabel = escapeHtml(student.instrument || student.art || "tu proceso");
+  return { student, forStudent, filtered, instrumentLabel };
+}
+
+function renderLibraryGrid(filtered, instrumentLabel) {
+  return filtered.slice(0, 60).map((r) => `
+    <article class="resource-card">
+      <small>${escapeHtml(r.area)}${r.topic ? ` · ${escapeHtml(r.topic)}` : ""}</small>
+      <strong>${escapeHtml(r.name)}</strong>
+      <p>${escapeHtml(r.notes || "Recurso Musicala")}</p>
+      ${r.link ? `<button class="btn tiny" data-action="preview-resource" data-link="${escapeHtml(r.link)}">Abrir dentro</button>` : `<span class="badge warn">Sin enlace</span>`}
+    </article>
+  `).join("") || `<p class="empty">Aún no hay recursos para ${instrumentLabel} en la biblioteca.</p>`;
+}
+
+// Actualiza solo el contador y la grilla, sin tocar el <input> de búsqueda,
+// para que no se pierda el foco mientras se escribe.
+function updateLibraryResults() {
+  const module = appRoot.querySelector(".library-module");
+  if (!module) return;
+  const { forStudent, filtered, instrumentLabel } = computeLibraryData();
+  const badge = module.querySelector(".section-header .badge");
+  if (badge) badge.textContent = `${filtered.length}/${forStudent.length}`;
+  const grid = module.querySelector(".library-grid");
+  if (grid) grid.innerHTML = renderLibraryGrid(filtered, instrumentLabel);
+}
+
+function renderLibraryModule() {
+  const { forStudent, filtered, instrumentLabel } = computeLibraryData();
+  const areas = unique(forStudent.map((r) => r.area));      // p. ej. Guitarra, Teoría musical
+  const types = unique(forStudent.map((r) => r.category));  // tipo de recurso
+  const q = state.libraryFilter.q;
+  const area = state.libraryFilter.category;
+  const type = state.libraryFilter.level;
   return `
     <section class="card module wide library-module">
       <div class="section-header"><h3>Biblioteca de recursos</h3><span class="badge">${filtered.length}/${forStudent.length}</span></div>
@@ -1599,14 +1630,7 @@ function renderLibraryModule() {
         <select data-action="library-filter" data-field="level"><option value="">Todos los tipos</option>${optionList(types, type)}</select>
       </div>
       <div class="library-grid">
-        ${filtered.slice(0, 60).map((r) => `
-          <article class="resource-card">
-            <small>${escapeHtml(r.area)}${r.topic ? ` · ${escapeHtml(r.topic)}` : ""}</small>
-            <strong>${escapeHtml(r.name)}</strong>
-            <p>${escapeHtml(r.notes || "Recurso Musicala")}</p>
-            ${r.link ? `<button class="btn tiny" data-action="preview-resource" data-link="${escapeHtml(r.link)}">Abrir dentro</button>` : `<span class="badge warn">Sin enlace</span>`}
-          </article>
-        `).join("") || `<p class="empty">Aún no hay recursos para ${instrumentLabel} en la biblioteca.</p>`}
+        ${renderLibraryGrid(filtered, instrumentLabel)}
       </div>
       <div id="libraryFrameHost" class="library-frame-host"></div>
     </section>
@@ -2235,13 +2259,11 @@ function handleInput(event) {
 
   if (el.dataset.action === "library-filter") {
     state.libraryFilter[el.dataset.field] = el.value;
-    render();
     if (el.dataset.field === "q") {
-      const input = document.getElementById("librarySearch");
-      if (input) {
-        input.focus();
-        input.setSelectionRange(input.value.length, input.value.length);
-      }
+      // Solo refrescamos resultados; no tocamos el input para no perder el foco.
+      updateLibraryResults();
+    } else {
+      render();
     }
   }
 
